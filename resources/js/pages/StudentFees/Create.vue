@@ -102,11 +102,17 @@ const form: any = useForm({
 
 // Calculate totals
 const tuitionTotal = computed(() => {
-    return selectedSubjects.value.reduce((sum, s) => sum + s.amount, 0);
+    return selectedSubjects.value.reduce((sum, s) => {
+        const amount = parseFloat(s.amount) || 0;
+        return sum + amount;
+    }, 0);
 });
 
 const otherFeesTotal = computed(() => {
-    return selectedFees.value.reduce((sum, f) => sum + f.amount, 0);
+    return selectedFees.value.reduce((sum, f) => {
+        const amount = parseFloat(f.amount) || 0;
+        return sum + amount;
+    }, 0);
 });
 
 const grandTotal = computed(() => {
@@ -166,7 +172,7 @@ const addSubject = (subject: Subject) => {
         selectedSubjects.value.push({
             id: subject.id,
             units: subject.units,
-            amount: subject.total_cost,
+            amount: parseFloat(String(subject.total_cost)) || 0,
         });
     }
 };
@@ -185,7 +191,7 @@ const addFee = (fee: Fee) => {
     if (!exists) {
         selectedFees.value.push({
             id: fee.id,
-            amount: fee.amount,
+            amount: parseFloat(String(fee.amount)) || 0,
         });
     }
 };
