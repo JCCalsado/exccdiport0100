@@ -9,28 +9,33 @@ class AccountService
     /**
      * Recalculate a user's balance based on transactions.
      */
-    public static function recalculate(User $user): void
+    public static function recalculate(?User $user): void
     {
+        // If no user is provided, safely exit (prevents seeding crashes)
+        if (!$user) {
+            return;
+        }
+
         $charges = $user->transactions()
-            ->where('type', 'charge')
+            ->where('kind', 'charge')
             ->sum('amount');
 
         $payments = $user->transactions()
-            ->where('type', 'payment')
+            ->where('kind', 'payment')
             ->where('status', 'paid')
             ->sum('amount');
 
         $balance = $charges - $payments;
 
-        // ✅ Update or create account
+        // Ensure account exists
         $account = $user->account ?? $user->account()->create(['balance' => 0]);
         $account->update(['balance' => $balance]);
 
-        // ✅ Update linked student record
+        // Update student if available
         if ($user->student) {
             $user->student->update(['total_balance' => $balance]);
 
-            // 🎓 Auto-promotion if balance is fully cleared
+            // Auto-promote when balance is cleared
             if ($balance <= 0) {
                 self::promoteStudent($user);
             }

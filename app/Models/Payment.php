@@ -31,8 +31,10 @@ class Payment extends Model
     protected static function booted()
     {
         static::saved(function ($payment) {
-            // make sure AccountService exists and namespace is correct
-            AccountService::recalculate($payment->user);
+            // Ensure the payment has a related student and user
+            if ($payment->student && $payment->student->user) {
+                AccountService::recalculate($payment->student->user);
+            }
         });
     }
 }

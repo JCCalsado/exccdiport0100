@@ -18,6 +18,7 @@ return new class extends Migration {
             $table->timestamp('paid_at')->nullable();
             $table->text('meta')->nullable(); // store raw gateway response (json)
             $table->timestamps();
+            $table->unsignedBigInteger('fee_id')->nullable();
         });
     }
 
