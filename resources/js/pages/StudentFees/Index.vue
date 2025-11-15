@@ -1,4 +1,4 @@
-<!-- resources/js/Pages/StudentFees/Index.vue -->
+<!-- resources/js/pages/StudentFees/Index.vue -->
 <script setup lang="ts">
 import AppLayout from '@/layouts/AppLayout.vue';
 import Breadcrumbs from '@/components/Breadcrumbs.vue';
@@ -20,10 +20,16 @@ interface Student {
     } | null;
 }
 
+interface PaginationLink {
+    url: string | null;
+    label: string;
+    active: boolean;
+}
+
 interface Props {
     students: {
         data: Student[];
-        links: any[];
+        links: PaginationLink[];
         current_page: number;
         last_page: number;
     };
@@ -272,29 +278,34 @@ const formatCurrency = (amount: number) => {
                     </table>
                 </div>
 
-                <!-- Fixed Pagination -->
-                <div class="flex items-center justify-between px-6 py-4 border-t border-gray-200 bg-gray-50" v-if="students.last_page > 1">
+                <!-- Fixed Pagination with null check -->
+                <div 
+                    v-if="students.last_page > 1" 
+                    class="flex items-center justify-between px-6 py-4 border-t border-gray-200 bg-gray-50"
+                >
                     <div class="text-sm text-gray-600">
                         Page {{ students.current_page }} of {{ students.last_page }}
                     </div>
                     <div class="flex gap-2">
                         <template v-for="(link, index) in students.links" :key="index">
+                            <!-- Render as Link if URL exists -->
                             <Link
                                 v-if="link.url"
                                 :href="link.url"
                                 :class="[
-                                    'px-3 py-1 rounded border text-sm',
+                                    'px-3 py-1 rounded border text-sm transition-colors',
                                     link.active 
                                         ? 'bg-blue-600 text-white border-blue-600' 
                                         : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
                                 ]"
                                 v-html="link.label"
                             />
+                            <!-- Render as disabled span if URL is null -->
                             <span
                                 v-else
                                 :class="[
                                     'px-3 py-1 rounded border text-sm',
-                                    'bg-white text-gray-400 border-gray-300 opacity-50 cursor-not-allowed'
+                                    'bg-gray-100 text-gray-400 border-gray-300 cursor-not-allowed opacity-60'
                                 ]"
                                 v-html="link.label"
                             />
