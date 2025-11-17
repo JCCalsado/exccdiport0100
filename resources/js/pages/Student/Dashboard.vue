@@ -32,6 +32,7 @@ type RecentTransaction = {
   id: number
   reference: string
   type: string
+  kind: string
   amount: number
   status: string
   created_at: string
@@ -83,6 +84,16 @@ const activeNotifications = computed(() => {
     return startDate <= now && (!endDate || endDate >= now)
   })
 })
+
+const payNow = (transaction: RecentTransaction) => {
+  window.location.href = route('student.account', {
+    pay: 'true',
+    transaction_id: transaction.id,
+    reference: transaction.reference,
+    amount: transaction.amount,
+    category: transaction.type
+  })
+}
 </script>
 
 <template>
@@ -205,28 +216,52 @@ const activeNotifications = computed(() => {
               <div
                 v-for="transaction in recentTransactions"
                 :key="transaction.id"
-                class="flex justify-between items-center p-3 hover:bg-gray-50 rounded"
+                class="flex justify-between items-center p-3 hover:bg-gray-50 rounded border"
               >
-                <div>
+                <div class="flex-1">
                   <p class="font-medium">{{ transaction.type }}</p>
                   <p class="text-sm text-gray-600">{{ transaction.reference }}</p>
                   <p class="text-xs text-gray-500">{{ formatDate(transaction.created_at) }}</p>
                 </div>
-                <div class="text-right">
-                  <p
-                    class="font-semibold"
-                    :class="transaction.status === 'paid' ? 'text-green-600' : 'text-yellow-600'"
-                  >
-                    {{ formatCurrency(transaction.amount) }}
-                  </p>
-                  <span
-                    class="text-xs px-2 py-1 rounded"
-                    :class="transaction.status === 'paid'
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-yellow-100 text-yellow-800'"
-                  >
-                    {{ transaction.status }}
-                  </span>
+                <div class="flex items-center gap-3">
+                  <div class="text-right">
+                    <p
+                      class="font-semibold"
+                      :class="transaction.status === 'paid' ? 'text-green-600' : 'text-yellow-600'"
+                    >
+                      {{ formatCurrency(transaction.amount) }}
+                    </p>
+                    <span
+                      class="text-xs px-2 py-1 rounded"
+                      :class="transaction.status === 'paid'
+                        ? 'bg-green-100 text-green-800'
+                        : 'bg-yellow-100 text-yellow-800'"
+                    >
+                      {{ transaction.status }}
+                    </span>
+                  </div>
+                  <div class="flex gap-2">
+                    <Link
+                      :href="route('transactions.show', transaction.id)"
+                      class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium whitespace-nowrap"
+                    >
+                      View
+                    </Link>
+                    <Link
+                      v-if="transaction.status === 'paid'"
+                      :href="route('transactions.download')"
+                      class="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm font-medium whitespace-nowrap"
+                    >
+                      Download
+                    </Link>
+                    <button
+                      v-if="transaction.status === 'pending' && transaction.kind === 'charge'"
+                      @click="payNow(transaction)"
+                      class="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm font-medium whitespace-nowrap"
+                    >
+                      Pay Now
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

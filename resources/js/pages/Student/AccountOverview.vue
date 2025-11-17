@@ -71,6 +71,20 @@ const props = withDefaults(defineProps<{
   tab: 'fees'
 })
 
+// Get URL parameters for auto-payment
+const urlParams = computed(() => {
+  if (typeof window === 'undefined') return {};
+  const params = new URLSearchParams(window.location.search);
+  return {
+    pay: params.get('pay'),
+    tab: params.get('tab'),
+    transaction_id: params.get('transaction_id'),
+    reference: params.get('reference'),
+    amount: params.get('amount'),
+    category: params.get('category')
+  };
+});
+
 const breadcrumbs = [
   { title: 'Dashboard', href: route('dashboard') },
   { title: 'My Account' },
@@ -78,8 +92,7 @@ const breadcrumbs = [
 
 // Get tab from URL if prop is not working
 const getTabFromUrl = (): 'fees' | 'history' | 'payment' => {
-  const urlParams = new URLSearchParams(window.location.search)
-  const tab = urlParams.get('tab')
+  const tab = urlParams.value.tab
   
   if (tab === 'payment') return 'payment'
   if (tab === 'history') return 'history'
@@ -103,13 +116,42 @@ watch(() => props.tab, (newTab) => {
   }
 })
 
-// Ensure correct tab on mount
+// Auto-open payment tab and populate form if URL params exist
 onMounted(() => {
-  const urlTab = getTabFromUrl()
-  if (urlTab === 'payment' || urlTab === 'history') {
-    activeTab.value = urlTab
+  const params = urlParams.value;
+  
+  // Check if we should auto-switch to payment tab
+  if (params.pay === 'true' && params.amount && params.reference) {
+    activeTab.value = 'payment';
+    
+    // Auto-populate the payment form
+    paymentForm.amount = parseFloat(params.amount);
+    paymentForm.reference_number = params.reference;
+    paymentForm.description = params.category || 'Payment';
+    
+    // Clear URL parameters after populating
+    clearUrlParams();
+  } else {
+    // Otherwise use tab from URL if available
+    const urlTab = getTabFromUrl();
+    if (urlTab === 'payment' || urlTab === 'history') {
+      activeTab.value = urlTab;
+    }
   }
-})
+});
+
+// Clear URL parameters
+const clearUrlParams = () => {
+  if (typeof window !== 'undefined') {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('pay');
+    url.searchParams.delete('transaction_id');
+    url.searchParams.delete('reference');
+    url.searchParams.delete('amount');
+    url.searchParams.delete('category');
+    window.history.replaceState({}, '', url.toString());
+  }
+};
 
 const paymentForm = useForm({
   amount: 0,
@@ -236,7 +278,7 @@ const submitPayment = () => {
   <AppLayout>
     <Head title="My Account" />
 
-    <div class="w-full p-6">
+    <div class="w-full p-6 space-y-6">
       <Breadcrumbs :items="breadcrumbs" />
 
       <!-- Header -->
@@ -439,7 +481,7 @@ const submitPayment = () => {
                   :key="charge.id"
                   class="flex justify-between items-center p-3 bg-red-50 rounded border border-red-200"
                 >
-                  <div>
+                  <div class="flex-1">
                     <p class="font-medium text-gray-900">
                       {{ charge.fee?.name || charge.meta?.fee_name || charge.meta?.subject_name || charge.type }}
                     </p>
@@ -448,9 +490,22 @@ const submitPayment = () => {
                       {{ charge.meta.subject_code }}
                     </p>
                   </div>
-                  <div class="text-right">
-                    <p class="text-lg font-semibold text-red-600">{{ formatCurrency(charge.amount) }}</p>
-                    <span class="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 rounded">Pending</span>
+                  <div class="flex items-center gap-3">
+                    <div class="text-right">
+                      <p class="text-lg font-semibold text-red-600">{{ formatCurrency(charge.amount) }}</p>
+                      <span class="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 rounded">Pending</span>
+                    </div>
+                    <button
+                      @click="() => {
+                        activeTab = 'payment';
+                        paymentForm.amount = charge.amount;
+                        paymentForm.reference_number = charge.reference;
+                        paymentForm.description = charge.fee?.name || charge.meta?.fee_name || charge.meta?.subject_name || charge.type;
+                      }"
+                      class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm font-medium whitespace-nowrap"
+                    >
+                      Pay Now
+                    </button>
                   </div>
                 </div>
               </div>
@@ -497,7 +552,13 @@ const submitPayment = () => {
 
           <!-- Payment Form Tab -->
           <div v-if="activeTab === 'payment'">
-            <h2 class="text-2xl font-bold mb-6">Add New Payment</h2>
+            <div class="flex items-center justify-between mb-6">
+              <h2 class="text-2xl font-bold">Add New Payment</h2>
+              <div class="text-sm text-gray-600 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
+                <p class="font-medium text-blue-900">💡 Quick Tip</p>
+                <p class="text-blue-700">You can pay pending charges directly from the <span class="font-semibold">"Fees & Assessment"</span> tab</p>
+              </div>
+            </div>
             
             <!-- No Balance Message -->
             <div v-if="remainingBalance <= 0" class="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
@@ -551,19 +612,20 @@ const submitPayment = () => {
                   </div>
                 </div>
 
-                <!-- Reference Number (System Generated - Disabled) -->
+                <!-- Reference Number -->
                 <div>
                   <label class="block text-sm font-medium text-gray-700 mb-1">
                     Reference Number
-                    <span class="text-xs text-gray-500">(Auto-generated)</span>
+                    <span class="text-xs text-gray-500">(Optional)</span>
                   </label>
                   <input
-                    value="System will generate after submission"
-                    disabled
-                    class="w-full px-4 py-2 border rounded-lg shadow-sm bg-gray-100 cursor-not-allowed text-gray-500"
+                    v-model="paymentForm.reference_number"
+                    :disabled="remainingBalance <= 0"
+                    placeholder="e.g., Transaction reference"
+                    class="w-full px-4 py-2 border rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:bg-gray-100 disabled:cursor-not-allowed"
                   />
                   <p class="text-xs text-gray-500 mt-1">
-                    Reference number will be automatically generated
+                    Optional reference for your records
                   </p>
                 </div>
 
