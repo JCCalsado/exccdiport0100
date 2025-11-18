@@ -3,6 +3,8 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { Head, Link, useForm } from '@inertiajs/vue3'
 import AppLayout from '@/layouts/AppLayout.vue'
 import Breadcrumbs from '@/components/Breadcrumbs.vue'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 import { CreditCard, Calendar, CheckCircle, XCircle, Clock, AlertCircle } from 'lucide-vue-next'
 
 type Fee = {
@@ -19,6 +21,10 @@ type Transaction = {
   amount: number
   status: string
   created_at: string
+  year?: string
+  semester?: string
+  payment_channel?: string
+  paid_at?: string
   fee?: {
     name: string
     category: string
@@ -71,28 +77,18 @@ const props = withDefaults(defineProps<{
   tab: 'fees'
 })
 
-// Get URL parameters for auto-payment
-const urlParams = computed(() => {
-  if (typeof window === 'undefined') return {};
-  const params = new URLSearchParams(window.location.search);
-  return {
-    pay: params.get('pay'),
-    tab: params.get('tab'),
-    transaction_id: params.get('transaction_id'),
-    reference: params.get('reference'),
-    amount: params.get('amount'),
-    category: params.get('category')
-  };
-});
-
 const breadcrumbs = [
   { title: 'Dashboard', href: route('dashboard') },
   { title: 'My Account' },
 ]
 
+const showDetailsDialog = ref(false)
+const selectedTransaction = ref<Transaction | null>(null)
+
 // Get tab from URL if prop is not working
 const getTabFromUrl = (): 'fees' | 'history' | 'payment' => {
-  const tab = urlParams.value.tab
+  const urlParams = new URLSearchParams(window.location.search)
+  const tab = urlParams.get('tab')
   
   if (tab === 'payment') return 'payment'
   if (tab === 'history') return 'history'
@@ -116,42 +112,13 @@ watch(() => props.tab, (newTab) => {
   }
 })
 
-// Auto-open payment tab and populate form if URL params exist
+// Ensure correct tab on mount
 onMounted(() => {
-  const params = urlParams.value;
-  
-  // Check if we should auto-switch to payment tab
-  if (params.pay === 'true' && params.amount && params.reference) {
-    activeTab.value = 'payment';
-    
-    // Auto-populate the payment form
-    paymentForm.amount = parseFloat(params.amount);
-    paymentForm.reference_number = params.reference;
-    paymentForm.description = params.category || 'Payment';
-    
-    // Clear URL parameters after populating
-    clearUrlParams();
-  } else {
-    // Otherwise use tab from URL if available
-    const urlTab = getTabFromUrl();
-    if (urlTab === 'payment' || urlTab === 'history') {
-      activeTab.value = urlTab;
-    }
+  const urlTab = getTabFromUrl()
+  if (urlTab === 'payment' || urlTab === 'history') {
+    activeTab.value = urlTab
   }
-});
-
-// Clear URL parameters
-const clearUrlParams = () => {
-  if (typeof window !== 'undefined') {
-    const url = new URL(window.location.href);
-    url.searchParams.delete('pay');
-    url.searchParams.delete('transaction_id');
-    url.searchParams.delete('reference');
-    url.searchParams.delete('amount');
-    url.searchParams.delete('category');
-    window.history.replaceState({}, '', url.toString());
-  }
-};
+})
 
 const paymentForm = useForm({
   amount: 0,
@@ -272,13 +239,28 @@ const submitPayment = () => {
     },
   })
 }
+
+const viewTransaction = (transaction: Transaction) => {
+  selectedTransaction.value = transaction
+  showDetailsDialog.value = true
+}
+
+const closeDetailsDialog = () => {
+  showDetailsDialog.value = false
+  selectedTransaction.value = null
+}
+
+const downloadPDF = () => {
+  // Implement download logic if needed
+  console.log('Download PDF')
+}
 </script>
 
 <template>
   <AppLayout>
     <Head title="My Account" />
 
-    <div class="w-full p-6 space-y-6">
+    <div class="w-full p-6">
       <Breadcrumbs :items="breadcrumbs" />
 
       <!-- Header -->
@@ -481,7 +463,7 @@ const submitPayment = () => {
                   :key="charge.id"
                   class="flex justify-between items-center p-3 bg-red-50 rounded border border-red-200"
                 >
-                  <div class="flex-1">
+                  <div>
                     <p class="font-medium text-gray-900">
                       {{ charge.fee?.name || charge.meta?.fee_name || charge.meta?.subject_name || charge.type }}
                     </p>
@@ -490,30 +472,17 @@ const submitPayment = () => {
                       {{ charge.meta.subject_code }}
                     </p>
                   </div>
-                  <div class="flex items-center gap-3">
-                    <div class="text-right">
+                  <div class="text-right flex flex-col items-end gap-2">
+                    <div>
                       <p class="text-lg font-semibold text-red-600">{{ formatCurrency(charge.amount) }}</p>
                       <span class="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 rounded">Pending</span>
                     </div>
-                    <div class="flex gap-2">
-                      <Link
-                        :href="route('transactions.show', charge.id)"
-                        class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium whitespace-nowrap"
-                      >
-                        View
-                      </Link>
-                      <button
-                        @click="() => {
-                          activeTab = 'payment';
-                          paymentForm.amount = charge.amount;
-                          paymentForm.reference_number = charge.reference;
-                          paymentForm.description = charge.fee?.name || charge.meta?.fee_name || charge.meta?.subject_name || charge.type;
-                        }"
-                        class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm font-medium whitespace-nowrap"
-                      >
-                        Pay Now
-                      </button>
-                    </div>
+                    <button
+                      @click="viewTransaction(charge)"
+                      class="text-xs px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                    >
+                      View
+                    </button>
                   </div>
                 </div>
               </div>
@@ -560,13 +529,7 @@ const submitPayment = () => {
 
           <!-- Payment Form Tab -->
           <div v-if="activeTab === 'payment'">
-            <div class="flex items-center justify-between mb-6">
-              <h2 class="text-2xl font-bold">Add New Payment</h2>
-              <div class="text-sm text-gray-600 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
-                <p class="font-medium text-blue-900">💡 Quick Tip</p>
-                <p class="text-blue-700">You can pay pending charges directly from the <span class="font-semibold">"Fees & Assessment"</span> tab</p>
-              </div>
-            </div>
+            <h2 class="text-2xl font-bold mb-6">Add New Payment</h2>
             
             <!-- No Balance Message -->
             <div v-if="remainingBalance <= 0" class="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
@@ -620,20 +583,19 @@ const submitPayment = () => {
                   </div>
                 </div>
 
-                <!-- Reference Number -->
+                <!-- Reference Number (System Generated - Disabled) -->
                 <div>
                   <label class="block text-sm font-medium text-gray-700 mb-1">
                     Reference Number
-                    <span class="text-xs text-gray-500">(Optional)</span>
+                    <span class="text-xs text-gray-500">(Auto-generated)</span>
                   </label>
                   <input
-                    v-model="paymentForm.reference_number"
-                    :disabled="remainingBalance <= 0"
-                    placeholder="e.g., Transaction reference"
-                    class="w-full px-4 py-2 border rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:bg-gray-100 disabled:cursor-not-allowed"
+                    value="System will generate after submission"
+                    disabled
+                    class="w-full px-4 py-2 border rounded-lg shadow-sm bg-gray-100 cursor-not-allowed text-gray-500"
                   />
                   <p class="text-xs text-gray-500 mt-1">
-                    Optional reference for your records
+                    Reference number will be automatically generated
                   </p>
                 </div>
 
@@ -685,5 +647,139 @@ const submitPayment = () => {
         </div>
       </div>
     </div>
+
+    <!-- Transaction Details Dialog -->
+    <Dialog v-model:open="showDetailsDialog">
+      <DialogContent class="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Transaction Details</DialogTitle>
+          <DialogDescription>
+            Complete information about this transaction
+          </DialogDescription>
+        </DialogHeader>
+
+        <div v-if="selectedTransaction" class="space-y-6">
+          <!-- Basic Information -->
+          <div class="space-y-4">
+            <h3 class="font-semibold text-lg border-b pb-2">Basic Information</h3>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <p class="text-sm text-gray-600">Reference Number</p>
+                <p class="font-mono font-medium">{{ selectedTransaction.reference }}</p>
+              </div>
+              <div>
+                <p class="text-sm text-gray-600">Date</p>
+                <p class="font-medium">{{ formatDate(selectedTransaction.created_at) }}</p>
+              </div>
+              <div>
+                <p class="text-sm text-gray-600">Transaction Type</p>
+                <span 
+                  class="inline-block px-2 py-1 text-xs font-semibold rounded-full"
+                  :class="selectedTransaction.kind === 'charge' 
+                    ? 'bg-red-100 text-red-800' 
+                    : 'bg-green-100 text-green-800'"
+                >
+                  {{ selectedTransaction.kind }}
+                </span>
+              </div>
+              <div>
+                <p class="text-sm text-gray-600">Status</p>
+                <span 
+                  class="inline-block px-2 py-1 text-xs font-semibold rounded-full"
+                  :class="{
+                    'bg-green-100 text-green-800': selectedTransaction.status === 'paid',
+                    'bg-yellow-100 text-yellow-800': selectedTransaction.status === 'pending',
+                    'bg-red-100 text-red-800': selectedTransaction.status === 'failed',
+                    'bg-gray-100 text-gray-800': selectedTransaction.status === 'cancelled'
+                  }"
+                >
+                  {{ selectedTransaction.status }}
+                </span>
+              </div>
+              <div>
+                <p class="text-sm text-gray-600">Category</p>
+                <p class="font-medium">{{ selectedTransaction.type }}</p>
+              </div>
+              <div>
+                <p class="text-sm text-gray-600">Amount</p>
+                <p 
+                  class="text-xl font-bold"
+                  :class="selectedTransaction.kind === 'charge' ? 'text-red-600' : 'text-green-600'"
+                >
+                  {{ selectedTransaction.kind === 'charge' ? '+' : '-' }}₱{{ formatCurrency(selectedTransaction.amount).replace('₱', '') }}
+                </p>
+              </div>
+            </div>
+          </div>
+
+                    <!-- Payment Information (if payment) -->
+          <div v-if="selectedTransaction.kind === 'payment'" class="space-y-4">
+            <h3 class="font-semibold text-lg border-b pb-2">Payment Information</h3>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <p class="text-sm text-gray-600">Payment Method</p>
+                <p class="font-medium capitalize">
+                  {{ selectedTransaction.payment_channel || 'N/A' }}
+                </p>
+              </div>
+
+              <div>
+                <p class="text-sm text-gray-600">Paid At</p>
+                <p class="font-medium">
+                  {{ selectedTransaction.paid_at ? formatDate(selectedTransaction.paid_at) : 'N/A' }}
+                </p>
+              </div>
+
+              <div class="col-span-2">
+                <p class="text-sm text-gray-600">Description</p>
+                <p class="font-medium">
+                  {{ selectedTransaction.meta?.description || 'No description provided' }}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Charge Information (if related to a fee/subject) -->
+          <div v-if="selectedTransaction.kind === 'charge'" class="space-y-4">
+            <h3 class="font-semibold text-lg border-b pb-2">Charge Details</h3>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <p class="text-sm text-gray-600">Fee / Subject</p>
+                <p class="font-medium">
+                  {{ selectedTransaction.meta?.fee_name || selectedTransaction.meta?.subject_name || 'N/A' }}
+                </p>
+              </div>
+
+              <div>
+                <p class="text-sm text-gray-600">Category</p>
+                <p class="font-medium">
+                  {{ selectedTransaction.fee?.category || selectedTransaction.meta?.subject_code || 'General' }}
+                </p>
+              </div>
+
+              <div v-if="selectedTransaction.meta?.subject_code">
+                <p class="text-sm text-gray-600">Subject Code</p>
+                <p class="font-medium">{{ selectedTransaction.meta.subject_code }}</p>
+              </div>
+
+              <div v-if="selectedTransaction.meta?.assessment_id">
+                <p class="text-sm text-gray-600">Assessment Reference</p>
+                <p class="font-medium">#{{ selectedTransaction.meta.assessment_id }}</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Close Button -->
+          <div class="pt-4 border-t">
+            <Button 
+              class="w-full bg-indigo-600 text-white hover:bg-indigo-700" 
+              @click="closeDetailsDialog"
+            >
+              Close
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   </AppLayout>
 </template>
