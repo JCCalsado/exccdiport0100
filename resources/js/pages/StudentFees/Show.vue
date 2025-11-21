@@ -24,7 +24,6 @@ import {
 import { ArrowLeft, Plus, Download, FileText } from 'lucide-vue-next';
 import { ref, computed } from 'vue';
 
-
 interface Subject {
     id: number;
     code: string;
@@ -88,7 +87,6 @@ interface Props {
 
 const props = defineProps<Props>();
 
-// Calculate remaining balance
 const remainingBalance = computed(() => {
     return Math.abs(props.student.account?.balance || 0);
 });
@@ -108,7 +106,6 @@ const paymentForm = useForm({
     payment_date: new Date().toISOString().split('T')[0],
 });
 
-// Computed: Total units
 const totalUnits = computed(() => {
     if (!props.assessment?.subjects) return { lec: 0, lab: 0, total: 0 };
     
@@ -119,12 +116,10 @@ const totalUnits = computed(() => {
     }), { lec: 0, lab: 0, total: 0 });
 });
 
-// Computed: Has OBE curriculum
 const isOBEAssessment = computed(() => {
     return props.assessment?.curriculum !== undefined && props.assessment?.curriculum !== null;
 });
 
-// Computed: Program name
 const programName = computed(() => {
     if (isOBEAssessment.value && props.assessment?.curriculum) {
         const major = props.assessment.curriculum.program.major;
@@ -342,156 +337,167 @@ const formatDate = (date: string) => {
                 </CardContent>
             </Card>
 
-            <!-- Certificate of Matriculation -->
+            <!-- ============================================ -->
+            <!-- CERTIFICATE OF MATRICULATION - OPTIMIZED    -->
+            <!-- ============================================ -->
             <Card v-if="assessment">
                 <CardHeader>
                     <div class="flex justify-between items-start">
                         <div>
-                            <CardTitle>Certificate of Matriculation</CardTitle>
-                            <CardDescription>Assessment No: {{ assessment.assessment_number }}</CardDescription>
+                            <CardTitle class="text-2xl font-bold uppercase tracking-wide text-blue-900">Certificate of Matriculation</CardTitle>
+                            <CardDescription class="text-base mt-2">Assessment No: <span class="font-semibold text-gray-900">{{ assessment.assessment_number }}</span></CardDescription>
                         </div>
-                        <div class="text-right">
-                            <p class="text-sm text-gray-600">{{ assessment.semester }} - {{ assessment.school_year }}</p>
-                            <p class="text-sm font-medium">{{ assessment.year_level }}</p>
+                        <div class="text-right bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
+                            <p class="text-sm font-semibold text-gray-700">{{ assessment.semester }} - {{ assessment.school_year }}</p>
+                            <p class="text-base font-bold text-blue-700">{{ assessment.year_level }}</p>
                         </div>
                     </div>
                 </CardHeader>
-                <CardContent class="space-y-6">
+                <CardContent class="space-y-8">
                     <!-- Subjects Table (OBE Format) -->
-                    <div v-if="assessment.subjects && assessment.subjects.length > 0">
-                        <h3 class="font-semibold mb-3 text-gray-900">SUBJECTS</h3>
-                        <div class="overflow-x-auto border rounded-lg">
-                            <table class="min-w-full divide-y divide-gray-200">
-                                <thead class="bg-gray-50">
-                                    <tr>
-                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Subject Code
-                                        </th>
-                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Description
-                                        </th>
-                                        <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            UNIT(S)
-                                        </th>
-                                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Time
-                                        </th>
-                                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Day
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody class="bg-white divide-y divide-gray-200">
-                                    <tr
-                                        v-for="subject in assessment.subjects"
-                                        :key="subject.id"
-                                        class="hover:bg-gray-50"
-                                    >
-                                        <td class="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                                            {{ subject.code }}
-                                        </td>
-                                        <td class="px-4 py-3 text-sm text-gray-900">
-                                            {{ subject.title }}
-                                        </td>
-                                        <td class="px-4 py-3 whitespace-nowrap text-sm text-center font-medium text-gray-900">
-                                            {{ subject.total_units }}
-                                        </td>
-                                        <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">
-                                            08:00 AM - 10:00 AM
-                                        </td>
-                                        <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">
-                                            MTWTHF
-                                        </td>
-                                    </tr>
-                                    <!-- Total Row -->
-                                    <tr class="bg-gray-100 font-semibold">
-                                        <td colspan="2" class="px-4 py-3 text-sm text-right text-gray-900">
-                                            TOTAL:
-                                        </td>
-                                        <td class="px-4 py-3 whitespace-nowrap text-sm text-center text-gray-900">
-                                            {{ totalUnits.lec }}
-                                        </td>
-                                        <td class="px-4 py-3 whitespace-nowrap text-sm text-center text-gray-900">
-                                            
-                                        </td>
-                                        <td class="px-4 py-3 whitespace-nowrap text-sm text-center text-gray-900">
-                                            
-                                        </td>
-                                        <td colspan="3" class="px-4 py-3 text-sm text-right"></td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                    <div v-if="assessment.subjects && assessment.subjects.length > 0" class="space-y-4">
+                        <div class="bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 rounded-t-lg">
+                            <h3 class="text-lg font-bold text-white uppercase tracking-wider">Enrolled Subjects</h3>
+                        </div>
+                        <div class="border-2 border-gray-300 rounded-b-lg overflow-hidden shadow-sm">
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full divide-y divide-gray-300">
+                                    <thead class="bg-gradient-to-r from-gray-100 to-gray-200">
+                                        <tr>
+                                            <th class="px-6 py-4 text-left text-xs font-black text-gray-700 uppercase tracking-wider border-r border-gray-300">
+                                                Subject Code
+                                            </th>
+                                            <th class="px-6 py-4 text-left text-xs font-black text-gray-700 uppercase tracking-wider border-r border-gray-300">
+                                                Description
+                                            </th>
+                                            <th class="px-6 py-4 text-center text-xs font-black text-gray-700 uppercase tracking-wider border-r border-gray-300">
+                                                UNIT(S)
+                                            </th>
+                                            <th class="px-6 py-4 text-center text-xs font-black text-gray-700 uppercase tracking-wider border-r border-gray-300">
+                                                Time
+                                            </th>
+                                            <th class="px-6 py-4 text-center text-xs font-black text-gray-700 uppercase tracking-wider">
+                                                Day
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-gray-200">
+                                        <tr
+                                            v-for="subject in assessment.subjects"
+                                            :key="subject.id"
+                                            class="hover:bg-blue-50 transition-colors duration-150"
+                                        >
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900 border-r border-gray-200">
+                                                {{ subject.code }}
+                                            </td>
+                                            <td class="px-6 py-4 text-sm font-medium text-gray-800 border-r border-gray-200">
+                                                {{ subject.title }}
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-center text-base font-black text-gray-900 border-r border-gray-200">
+                                                {{ subject.total_units }}
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-700 border-r border-gray-200">
+                                                08:00 AM - 10:00 AM
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-700">
+                                                MTWTHF
+                                            </td>
+                                        </tr>
+                                        <!-- Total Row -->
+                                        <tr class="bg-gradient-to-r from-blue-100 to-indigo-100 border-t-4 border-blue-600">
+                                            <td colspan="2" class="px-6 py-4 text-right text-base font-black text-gray-900 uppercase tracking-wide border-r border-gray-300">
+                                                TOTAL:
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-center text-xl font-black text-blue-700 border-r border-gray-300">
+                                                {{ totalUnits.total }}
+                                            </td>
+                                            <td colspan="2" class="px-6 py-4"></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
 
                     <!-- Fees Breakdown -->
-                    <div>
-                        <h3 class="font-semibold mb-3 text-gray-900">FEES</h3>
-                        <div class="space-y-2 bg-gray-50 rounded-lg p-4">
-                            <div class="flex justify-between py-2 border-b">
-                                <span class="text-gray-700">Registration Fee:</span>
-                                <span class="font-medium">{{ formatCurrency(assessment.registration_fee || 0) }}</span>
-                            </div>
-                            <div class="flex justify-between py-2 border-b">
-                                <span class="text-gray-700">Tuition Fee:</span>
-                                <span class="font-medium">{{ formatCurrency(assessment.tuition_fee) }}</span>
-                            </div>
-                            <div class="flex justify-between py-2 border-b">
-                                <span class="text-gray-700">Lab. Fee:</span>
-                                <span class="font-medium"> </span>
-                            </div>
-                            <div class="flex justify-between py-2 border-b">
-                                <span class="text-gray-700">Misc. Fee:</span>
-                                <span class="font-medium"> </span>
-                            </div>
-                            <div class="flex justify-between py-3 font-bold text-lg border-t-2 border-gray-300 mt-2">
-                                <span class="text-gray-900">Total Assessment Fee:</span>
-                                <span class="text-blue-600">{{ formatCurrency(assessment.total_assessment) }}</span>
+                    <div class="space-y-4">
+                        <div class="bg-gradient-to-r from-green-600 to-teal-600 px-4 py-3 rounded-t-lg">
+                            <h3 class="text-lg font-bold text-white uppercase tracking-wider">FEES</h3>
+                        </div>
+                        <div class="border-2 border-gray-300 rounded-b-lg overflow-hidden shadow-sm">
+                            <div class="p-6 space-y-3 bg-gradient-to-br from-gray-50 to-white">
+                                <div class="flex justify-between py-3 border-b-2 border-gray-200 hover:bg-gray-100 px-3 rounded transition-colors">
+                                    <span class="text-base font-semibold text-gray-800">Registration Fee:</span>
+                                    <span class="text-base font-bold text-gray-900">{{ formatCurrency(assessment.registration_fee || 0) }}</span>
+                                </div>
+                                <div class="flex justify-between py-3 border-b-2 border-gray-200 hover:bg-gray-100 px-3 rounded transition-colors">
+                                    <span class="text-base font-semibold text-gray-800">Tuition Fee:</span>
+                                    <span class="text-base font-bold text-gray-900">{{ formatCurrency(assessment.tuition_fee) }}</span>
+                                </div>
+                                <div class="flex justify-between py-3 border-b-2 border-gray-200 hover:bg-gray-100 px-3 rounded transition-colors">
+                                    <span class="text-base font-semibold text-gray-800">Lab. Fee:</span>
+                                    <span class="text-base font-bold text-gray-900">-</span>
+                                </div>
+                                <div class="flex justify-between py-3 border-b-2 border-gray-200 hover:bg-gray-100 px-3 rounded transition-colors">
+                                    <span class="text-base font-semibold text-gray-800">Misc. Fee:</span>
+                                    <span class="text-base font-bold text-gray-900">-</span>
+                                </div>
+                                <div class="flex justify-between py-5 font-black text-xl border-t-4 border-blue-600 mt-4 bg-gradient-to-r from-blue-50 to-indigo-50 px-4 rounded-lg">
+                                    <span class="text-gray-900 uppercase tracking-wide">Total Assessment Fee:</span>
+                                    <span class="text-blue-700">{{ formatCurrency(assessment.total_assessment) }}</span>
+                                </div>
                             </div>
                         </div>
                     </div>
 
                     <!-- Terms of Payment -->
-                    <div v-if="assessment.payment_terms">
-                        <h3 class="font-semibold mb-3 text-gray-900">TERMS OF PAYMENT</h3>
-                        <div class="space-y-2 bg-gray-50 rounded-lg p-4">
-                            <div class="flex justify-between py-2">
-                                <span class="text-gray-700">Upon Registration</span>
-                                <span class="font-medium">{{ formatCurrency(assessment.payment_terms.upon_registration) }}</span>
-                            </div>
-                            <div class="flex justify-between py-2">
-                                <span class="text-gray-700">Prelim</span>
-                                <span class="font-medium">{{ formatCurrency(assessment.payment_terms.prelim) }}</span>
-                            </div>
-                            <div class="flex justify-between py-2">
-                                <span class="text-gray-700">Midterm</span>
-                                <span class="font-medium">{{ formatCurrency(assessment.payment_terms.midterm) }}</span>
-                            </div>
-                            <div class="flex justify-between py-2">
-                                <span class="text-gray-700">Semi-Final</span>
-                                <span class="font-medium">{{ formatCurrency(assessment.payment_terms.semi_final) }}</span>
-                            </div>
-                            <div class="flex justify-between py-2">
-                                <span class="text-gray-700">Final</span>
-                                <span class="font-medium">{{ formatCurrency(assessment.payment_terms.final) }}</span>
+                    <div v-if="assessment.payment_terms" class="space-y-4">
+                        <div class="bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-3 rounded-t-lg">
+                            <h3 class="text-lg font-bold text-white uppercase tracking-wider">TERMS OF PAYMENT</h3>
+                        </div>
+                        <div class="border-2 border-gray-300 rounded-b-lg overflow-hidden shadow-sm">
+                            <div class="p-6 bg-gradient-to-br from-purple-50 to-pink-50">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div class="flex justify-between items-center py-4 px-5 bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow border border-gray-200">
+                                        <span class="text-sm font-bold text-gray-700 uppercase">Upon Registration</span>
+                                        <span class="text-lg font-black text-gray-900">{{ formatCurrency(assessment.payment_terms.upon_registration) }}</span>
+                                    </div>
+                                    <div class="flex justify-between items-center py-4 px-5 bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow border border-gray-200">
+                                        <span class="text-sm font-bold text-gray-700 uppercase">Prelim</span>
+                                        <span class="text-lg font-black text-gray-900">{{ formatCurrency(assessment.payment_terms.prelim) }}</span>
+                                    </div>
+                                    <div class="flex justify-between items-center py-4 px-5 bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow border border-gray-200">
+                                        <span class="text-sm font-bold text-gray-700 uppercase">Midterm</span>
+                                        <span class="text-lg font-black text-gray-900">{{ formatCurrency(assessment.payment_terms.midterm) }}</span>
+                                    </div>
+                                    <div class="flex justify-between items-center py-4 px-5 bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow border border-gray-200">
+                                        <span class="text-sm font-bold text-gray-700 uppercase">Semi-Final</span>
+                                        <span class="text-lg font-black text-gray-900">{{ formatCurrency(assessment.payment_terms.semi_final) }}</span>
+                                    </div>
+                                    <div class="md:col-span-2 flex justify-between items-center py-4 px-5 bg-gradient-to-r from-purple-100 to-pink-100 rounded-lg shadow-sm hover:shadow-md transition-shadow border-2 border-purple-300">
+                                        <span class="text-base font-black text-gray-900 uppercase">Final</span>
+                                        <span class="text-xl font-black text-purple-700">{{ formatCurrency(assessment.payment_terms.final) }}</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
 
                     <!-- Current Balance -->
-                    <div class="pt-4 border-t-2">
-                        <div class="flex justify-between items-center p-4 bg-blue-50 rounded-lg border border-blue-200">
-                            <span class="font-medium text-lg">Current Balance</span>
-                            <span
-                                class="text-2xl font-bold"
-                                :class="(student.account?.balance || 0) > 0 ? 'text-red-600' : 'text-green-600'"
-                            >
-                                {{ formatCurrency(Math.abs(student.account?.balance || 0)) }}
-                            </span>
+                    <div class="pt-6 border-t-4 border-gray-300">
+                        <div class="flex justify-between items-center p-6 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl shadow-lg text-white">
+                            <div>
+                                <p class="text-sm font-semibold uppercase tracking-wider opacity-90">Current Balance</p>
+                                <p class="text-4xl font-black mt-1">{{ formatCurrency(Math.abs(student.account?.balance || 0)) }}</p>
+                            </div>
+                            
                         </div>
                     </div>
                 </CardContent>
             </Card>
+            <!-- ============================================ -->
+            <!-- END CERTIFICATE OF MATRICULATION            -->
+            <!-- ============================================ -->
 
             <!-- Payment History -->
             <Card>

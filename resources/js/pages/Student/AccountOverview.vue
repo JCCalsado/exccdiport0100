@@ -19,28 +19,23 @@ import {
   DollarSign,
 } from 'lucide-vue-next'
 
-/**
- * Props expected from Laravel backend:
- * - student: object (student meta)
- * - account: object (account meta & balances)
- * - assessment: object (current/latest assessment, totals, subjects array maybe)
- * - assessmentLines: (provided but NOT used per user instruction)
- * - termsOfPayment: object or array (schedule amounts)
- *
- * Additional props that the original components used (optional):
- * - transactions: array of transaction objects
- * - fees: array of fee objects
- */
-
 interface SubjectLine {
   subject_code?: string
+  code?: string
   description?: string
+  title?: string
+  name?: string
   units?: number
+  total_units?: number
+  lec_units?: number
+  lab_units?: number
   tuition?: number
   lab_fee?: number
   misc_fee?: number
   total?: number
   semester?: string | number
+  time?: string
+  day?: string
 }
 
 interface Transaction {
@@ -75,10 +70,10 @@ interface Props {
     midterm?: number
     semi_final?: number
     final?: number
-    subjects?: SubjectLine[] // optional, may not exist
+    subjects?: SubjectLine[]
     total_units?: number
   }
-  assessmentLines?: SubjectLine[] // provided but will NOT be used (per user)
+  assessmentLines?: SubjectLine[]
   termsOfPayment?: Record<string, number> | null
   transactions?: Transaction[]
   fees?: { name: string; amount: number; category?: string }[]
@@ -105,7 +100,6 @@ const breadcrumbs = [
   { title: 'My Account' },
 ]
 
-// Tab Management
 const getTabFromUrl = (): 'fees' | 'history' | 'payment' => {
   const urlParams = new URLSearchParams(window.location.search)
   const tab = urlParams.get('tab')
@@ -113,11 +107,9 @@ const getTabFromUrl = (): 'fees' | 'history' | 'payment' => {
 }
 const activeTab = ref<'fees' | 'history' | 'payment'>(props.tab || getTabFromUrl())
 
-// Dialog state
 const showDetailsDialog = ref(false)
 const selectedTransaction = ref<Transaction | null>(null)
 
-// Payment Form (Inertia)
 const paymentForm = useForm({
   amount: 0,
   payment_method: 'cash' as PaymentMethod,
@@ -126,15 +118,12 @@ const paymentForm = useForm({
   description: 'Payment for fees',
 })
 
-// assessment alias (use only the provided assessment prop — do NOT use assessmentLines)
 const latestAssessment = computed(() => props.assessment || {})
 
-// Computed: totalAssessmentFee prefer explicit field else compute from fees or assessment fields
 const totalAssessmentFee = computed(() => {
   if (typeof latestAssessment.value.total_assessment === 'number') {
     return latestAssessment.value.total_assessment
   }
-  // fallback compute from tuition + others if present
   const tuition = Number(latestAssessment.value.tuition_fee || 0)
   const other = Number(latestAssessment.value.other_fees || 0)
   const reg = Number(latestAssessment.value.registration_fee || 0)
@@ -143,25 +132,26 @@ const totalAssessmentFee = computed(() => {
   if (tuition || other || reg || lab || misc) {
     return Math.round((tuition + other + reg + lab + misc) * 100) / 100
   }
-  // final fallback to fees prop
   return props.fees?.reduce((s, f) => s + Number(f.amount || 0), 0) ?? 0
 })
 
-// computed: subjects list — DO NOT use assessmentLines; use assessment.subjects if available
 const subjects = computed<SubjectLine[]>(() => {
   if (Array.isArray(latestAssessment.value.subjects) && latestAssessment.value.subjects.length) {
     return latestAssessment.value.subjects.map((s: any) => ({
-      subject_code: s.subject_code ?? s.code ?? s.code_number ?? '',
+      subject_code: s.subject_code ?? s.code ?? '',
       description: s.description ?? s.title ?? s.name ?? '',
-      units: Number(s.units ?? s.unit ?? 0),
+      units: Number(s.units ?? s.total_units ?? s.unit ?? 0),
+      lec_units: Number(s.lec_units ?? 0),
+      lab_units: Number(s.lab_units ?? 0),
       tuition: Number(s.tuition ?? 0),
       lab_fee: Number(s.lab_fee ?? s.lab ?? 0),
       misc_fee: Number(s.misc_fee ?? s.misc ?? 0),
       total: Number(s.total ?? (s.tuition ?? 0) + (s.lab_fee ?? 0) + (s.misc_fee ?? 0)),
       semester: s.semester ?? latestAssessment.value.semester ?? '',
+      time: s.time ?? '',
+      day: s.day ?? '',
     }))
   }
-  // If assessment.subjects does not exist, return empty array (we were instructed not to use assessmentLines)
   return []
 })
 
@@ -170,7 +160,6 @@ const totalUnits = computed(() => {
   return subjects.value.reduce((s, r) => s + Number(r.units || 0), 0)
 })
 
-// Computed: Payment totals from transactions (if provided)
 const totalPaid = computed(() => {
   return (props.transactions ?? [])
     .filter(t => t.kind === 'payment' && t.status === 'paid')
@@ -185,7 +174,6 @@ const remainingBalance = computed(() => {
     .filter(t => t.kind === 'payment' && t.status === 'paid')
     .reduce((sum, t) => sum + Number(t.amount || 0), 0)
   const diff = charges - payments
-  // If transactions not provided, fallback to assessment totals - payments
   if ((props.transactions ?? []).length === 0) {
     const assessed = totalAssessmentFee.value
     return Math.max(0, Math.round((assessed - totalPaid.value) * 100) / 100)
@@ -198,7 +186,6 @@ const paymentPercentage = computed(() => {
   return Math.min(100, Math.round((totalPaid.value / totalAssessmentFee.value) * 100))
 })
 
-// Grouped fees by category (fallback to props.fees)
 const feesByCategory = computed(() => {
   const list = props.fees ?? []
   const grouped = list.reduce((acc: Record<string, any[]>, fee) => {
@@ -214,7 +201,6 @@ const feesByCategory = computed(() => {
   }))
 })
 
-// Payment history and pending charges (from transactions)
 const paymentHistory = computed(() => {
   return (props.transactions ?? [])
     .filter(t => t.kind === 'payment')
@@ -318,7 +304,6 @@ const setPaymentAmount = (percentage: number) => {
 
       <!-- Balance Cards -->
       <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <!-- Total Assessment -->
         <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
           <div class="flex items-center justify-between mb-2">
             <div class="p-3 bg-blue-100 rounded-lg">
@@ -335,7 +320,6 @@ const setPaymentAmount = (percentage: number) => {
           </p>
         </div>
 
-        <!-- Total Paid -->
         <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
           <div class="flex items-center justify-between mb-2">
             <div class="p-3 bg-green-100 rounded-lg">
@@ -351,7 +335,6 @@ const setPaymentAmount = (percentage: number) => {
           </p>
         </div>
 
-        <!-- Current Balance -->
         <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
           <div class="flex items-center justify-between mb-2">
             <div :class="[
@@ -440,183 +423,199 @@ const setPaymentAmount = (percentage: number) => {
 
         <!-- Tab Content -->
         <div class="p-6">
-          <!-- Fees Tab - design of Version 1, layout/look of Version 2 -->
+          <!-- ============================================ -->
+          <!-- CERTIFICATE OF MATRICULATION - OPTIMIZED    -->
+          <!-- ============================================ -->
           <div v-if="activeTab === 'fees'" class="space-y-6">
-            <h2 class="text-lg font-semibold">CURRENT ASSESSMENT</h2>
+            <h2 class="text-2xl font-bold text-gray-900 uppercase tracking-wide border-b-2 border-blue-600 pb-2">
+              Certificate of Matriculation Form
+            </h2>
 
-            <!-- Assessment Info Banner -->
-            <div v-if="latestAssessment.assessment_number" class="bg-blue-50 rounded-lg p-4 border border-blue-200">
-              <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div>
-                  <span class="text-gray-600">Assessment No:</span>
-                  <p class="font-semibold">{{ latestAssessment.assessment_number }}</p>
+            <!-- Student Info Grid -->
+            <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border-2 border-blue-200">
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div class="space-y-1">
+                  <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</div>
+                  <div class="text-base font-bold text-gray-900">{{ props.student?.full_name || props.account?.student_name || props.student?.name || 'Student Name' }}</div>
                 </div>
-                <div>
-                  <span class="text-gray-600">School Year:</span>
-                  <p class="font-semibold">{{ latestAssessment.school_year || currentTerm?.year }}</p>
+                
+                <div class="space-y-1">
+                  <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Course & Year</div>
+                  <div class="text-base font-bold text-gray-900">{{ props.account?.course || props.student?.course || '-' }} - {{ props.student?.year_level || props.account?.year_level || '-' }}</div>
                 </div>
-                <div>
-                  <span class="text-gray-600">Semester:</span>
-                  <p class="font-semibold">{{ latestAssessment.semester || currentTerm?.semester }}</p>
+                
+                <div class="space-y-1">
+                  <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Semester/Summer</div>
+                  <div class="text-base font-bold text-gray-900">{{ currentTerm?.semester || latestAssessment.semester || '1st Sem' }}</div>
                 </div>
-                <div>
-                  <span class="text-gray-600">Status:</span>
-                  <span :class="[
-                    'px-2 py-1 text-xs font-semibold rounded-full',
-                    latestAssessment.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                  ]">
-                    {{ latestAssessment.status || 'unknown' }}
-                  </span>
+                
+                <div class="space-y-1">
+                  <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider">School Year</div>
+                  <div class="text-base font-bold text-gray-900">{{ latestAssessment.school_year || `${currentTerm?.year}-${(currentTerm?.year || 2025) + 1}` }}</div>
+                </div>
+                
+                <div class="space-y-1">
+                  <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Major</div>
+                  <div class="text-base font-bold text-gray-900">{{ props.student?.major || 'N/A' }}</div>
+                </div>
+                
+                <div class="space-y-1">
+                  <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Registration Date</div>
+                  <div class="text-base font-bold text-gray-900">{{ props.account?.registered_at ? formatDate(props.account.registered_at, 'short') : 'N/A' }}</div>
                 </div>
               </div>
             </div>
 
-            <!-- Certificate of Matriculation (subjects table) -->
-            <div class="bg-white rounded-lg border p-4">
-              <h3 class="font-semibold text-gray-700 mb-3">CERTIFICATE OF MATRICULATION FORM</h3>
-
-              <!-- Basic Info -->
-              <div class="grid grid-cols-2 gap-4 mb-4 text-sm">
-                <div>
-                  <div class="text-gray-600">Name</div>
-                  <div class="font-semibold">{{ props.student?.full_name || props.account?.student_name || 'Student Name' }}</div>
-                </div>
-                <div>
-                  <div class="text-gray-600">Sem/Summer</div>
-                  <div class="font-semibold">{{ currentTerm?.semester || latestAssessment.semester || '1st Sem' }}</div>
-                </div>
-
-                <div>
-                  <div class="text-gray-600">Course & Yr.</div>
-                  <div class="font-semibold">{{ props.account?.course || props.student?.course || '-' }}</div>
-                </div>
-                <div>
-                  <div class="text-gray-600">School Year</div>
-                  <div class="font-semibold">{{ latestAssessment.school_year || currentTerm?.year }}</div>
-                </div>
-
-                <div>
-                  <div class="text-gray-600">Major</div>
-                  <div class="font-semibold">{{ props.student?.major || '-' }}</div>
-                </div>
-                <div>
-                  <div class="text-gray-600">Registration Date</div>
-                  <div class="font-semibold">{{ props.account?.registered_at ? formatDate(props.account.registered_at) : '-' }}</div>
-                </div>
+            <!-- Subjects Table -->
+            <div class="bg-white rounded-lg border-2 border-gray-300 overflow-hidden shadow-sm">
+              <div class="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-3">
+                <h3 class="text-lg font-bold text-white uppercase tracking-wide">Enrolled Subjects</h3>
               </div>
-
-              <!-- Subjects Table Header -->
-              <div class="grid grid-cols-8 gap-2 text-xs font-semibold border-t pt-2 pb-2">
-                <div class="col-span-1">Subject Code</div>
-                <div class="col-span-4">Description</div>
-                <div class="col-span-1 text-center">Units</div>
-                <div class="col-span-1 text-right">Time</div>
-                <div class="col-span-1 text-right">Day</div>
+              
+              <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-300">
+                  <thead class="bg-gray-100">
+                    <tr>
+                      <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-r border-gray-300">
+                        Subject Code
+                      </th>
+                      <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-r border-gray-300">
+                        Description
+                      </th>
+                      <th scope="col" class="px-4 py-3 text-center text-xs font-bold text-gray-700 uppercase tracking-wider border-r border-gray-300">
+                        Units
+                      </th>
+                      <th scope="col" class="px-4 py-3 text-center text-xs font-bold text-gray-700 uppercase tracking-wider border-r border-gray-300">
+                        Time
+                      </th>
+                      <th scope="col" class="px-4 py-3 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        Day
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody class="bg-white divide-y divide-gray-200">
+                    <tr v-if="subjects.length === 0">
+                      <td colspan="5" class="px-6 py-12 text-center">
+                        <div class="flex flex-col items-center justify-center space-y-3">
+                          <Receipt :size="48" class="text-gray-300" />
+                          <p class="text-gray-500 font-medium">No subjects enrolled for this term</p>
+                          <p class="text-sm text-gray-400">Subject enrollment data will appear here</p>
+                        </div>
+                      </td>
+                    </tr>
+                    
+                    <tr
+                      v-for="(subject, idx) in subjects"
+                      :key="`subject-${idx}-${subject.subject_code}`"
+                      class="hover:bg-blue-50 transition-colors duration-150"
+                    >
+                      <td class="px-4 py-3 whitespace-nowrap text-sm font-semibold text-gray-900 border-r border-gray-200">
+                        {{ subject.subject_code }}
+                      </td>
+                      <td class="px-4 py-3 text-sm text-gray-800 border-r border-gray-200">
+                        {{ subject.description }}
+                      </td>
+                      <td class="px-4 py-3 whitespace-nowrap text-center text-sm font-bold text-gray-900 border-r border-gray-200">
+                        {{ subject.units }}
+                      </td>
+                      <td class="px-4 py-3 whitespace-nowrap text-center text-sm text-gray-700 border-r border-gray-200">
+                        {{ subject.time || 'TBA' }}
+                      </td>
+                      <td class="px-4 py-3 whitespace-nowrap text-center text-sm text-gray-700">
+                        {{ subject.day || 'TBA' }}
+                      </td>
+                    </tr>
+                  </tbody>
+                  
+                  <!-- Totals Footer -->
+                  <tfoot v-if="subjects.length > 0" class="bg-gradient-to-r from-gray-100 to-gray-200 border-t-2 border-gray-400">
+                    <tr>
+                      <td colspan="2" class="px-4 py-3 text-right text-sm font-black text-gray-900 uppercase tracking-wide border-r border-gray-300">
+                        Total Units:
+                      </td>
+                      <td class="px-4 py-3 text-center text-base font-black text-blue-700 border-r border-gray-300">
+                        {{ totalUnits }}
+                      </td>
+                      <td colspan="2" class="px-4 py-3"></td>
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
+            </div>
 
-              <!-- Subjects Rows -->
-              <div v-if="subjects.length" class="divide-y">
-                <div
-                  v-for="(row, idx) in subjects"
-                  :key="`sub-${idx}-${row.subject_code}`"
-                  class="grid grid-cols-8 gap-2 py-2 text-sm items-center"
-                >
-                  <div class="col-span-1">{{ row.subject_code }}</div>
-                  <div class="col-span-4">{{ row.description }}</div>
-                  <div class="col-span-1 text-center">{{ row.units }}</div>
-                  <!-- Assuming time and day data available in row.meta or row properties; adjust accordingly -->
-                  <div class="col-span-1 text-right">{{ row.time || '-' }}</div>
-                  <div class="col-span-1 text-right">{{ row.day || '-' }}</div>
-                </div>
-
-                <!-- Totals Row aligned with header -->
-                <div class="grid grid-cols-8 gap-2 pt-3 font-semibold">
-                  <div class="col-span-1"></div>
-                  <div class="col-span-4 text-right">Total:</div>
-                  <div class="col-span-1 text-center">{{ totalUnits }}</div>
-                  <div class="col-span-1 text-right">-</div>
-                  <div class="col-span-1 text-right">-</div>
-                </div>
+            <!-- Fee Breakdown -->
+            <div class="bg-white rounded-lg border-2 border-gray-300 overflow-hidden shadow-sm">
+              <div class="bg-gradient-to-r from-green-600 to-teal-600 px-6 py-3">
+                <h3 class="text-lg font-bold text-white uppercase tracking-wide">Fees Assessment</h3>
               </div>
-
-              <div v-else class="py-6 text-center text-gray-500">
-                No subjects available for this assessment.
-              </div>
-
-              <!-- Fees Summary -->
-              <div class="mt-4 border-t pt-3">
-                <div class="flex justify-between py-1 text-sm">
-                  <div>Registration Fee</div>
-                  <div>{{ formatCurrency(latestAssessment.registration_fee || latestAssessment.registration || 0) }}</div>
+              
+              <div class="p-6 space-y-3">
+                <div class="flex justify-between items-center py-3 border-b border-gray-200">
+                  <span class="text-sm font-semibold text-gray-700">Registration Fee</span>
+                  <span class="text-base font-bold text-gray-900">{{ formatCurrency(latestAssessment.registration_fee || latestAssessment.registration || 0) }}</span>
                 </div>
-                <div class="flex justify-between py-1 text-sm">
-                  <div>Tuition Fee</div>
-                  <div>{{ formatCurrency(latestAssessment.tuition_fee || 0) }}</div>
+                
+                <div class="flex justify-between items-center py-3 border-b border-gray-200">
+                  <span class="text-sm font-semibold text-gray-700">Tuition Fee</span>
+                  <span class="text-base font-bold text-gray-900">{{ formatCurrency(latestAssessment.tuition_fee || 0) }}</span>
                 </div>
-                <div class="flex justify-between py-1 text-sm">
-                  <div>Lab Fee</div>
-                  <div>{{ formatCurrency(latestAssessment.lab_fee || 0) }}</div>
+                
+                <div class="flex justify-between items-center py-3 border-b border-gray-200">
+                  <span class="text-sm font-semibold text-gray-700">Laboratory Fee</span>
+                  <span class="text-base font-bold text-gray-900">{{ formatCurrency(latestAssessment.lab_fee || 0) }}</span>
                 </div>
-                <div class="flex justify-between py-1 text-sm">
-                  <div>Misc. Fee</div>
-                  <div>{{ formatCurrency(latestAssessment.misc_fee || 0) }}</div>
+                
+                <div class="flex justify-between items-center py-3 border-b-2 border-gray-300">
+                  <span class="text-sm font-semibold text-gray-700">Miscellaneous Fee</span>
+                  <span class="text-base font-bold text-gray-900">{{ formatCurrency(latestAssessment.misc_fee || 0) }}</span>
                 </div>
-
-                <div class="flex justify-between py-2 text-lg font-bold border-t mt-2">
-                  <div>Total Assessment Fee</div>
-                  <div class="text-blue-600">{{ formatCurrency(totalAssessmentFee) }}</div>
-                </div>
-              </div>
-
-              <!-- Terms of Payment -->
-              <div class="mt-6">
-                <h4 class="font-semibold mb-2">Terms of Payment</h4>
-                <div class="grid grid-cols-2 gap-4 max-w-md text-sm">
-                  <div>Upon Registration</div>
-                  <div class="text-right">{{ formatCurrency(latestAssessment.upon_registration ?? latestAssessment.registration ?? (props.termsOfPayment?.registration ?? 0)) }}</div>
-
-                  <div>Prelim</div>
-                  <div class="text-right">{{ formatCurrency(latestAssessment.prelim ?? (props.termsOfPayment?.prelim ?? 0)) }}</div>
-
-                  <div>Midterm</div>
-                  <div class="text-right">{{ formatCurrency(latestAssessment.midterm ?? (props.termsOfPayment?.midterm ?? 0)) }}</div>
-
-                  <div>Semi-Final</div>
-                  <div class="text-right">{{ formatCurrency(latestAssessment.semi_final ?? (props.termsOfPayment?.semi_final ?? 0)) }}</div>
-
-                  <div>Final</div>
-                  <div class="text-right">{{ formatCurrency(latestAssessment.final ?? (props.termsOfPayment?.final ?? 0)) }}</div>
+                
+                <div class="flex justify-between items-center pt-4 pb-2 bg-gradient-to-r from-blue-50 to-indigo-50 px-4 py-4 rounded-lg mt-4">
+                  <span class="text-lg font-black text-gray-900 uppercase tracking-wide">Total Assessment Fee</span>
+                  <span class="text-2xl font-black text-blue-700">{{ formatCurrency(totalAssessmentFee) }}</span>
                 </div>
               </div>
             </div>
 
-
-            <!-- Fees by Category (if any) -->
-            <div v-if="feesByCategory.length" class="space-y-6">
-              <div v-for="categoryGroup in feesByCategory" :key="categoryGroup.category" class="space-y-2">
-                <h3 class="font-semibold text-gray-700 uppercase text-sm border-b pb-2">
-                  {{ categoryGroup.category }}
-                </h3>
-                <div
-                  v-for="(fee, index) in categoryGroup.fees"
-                  :key="index"
-                  class="flex justify-between py-2 pl-4"
-                >
-                  <span class="text-gray-700">{{ fee.name }}</span>
-                  <span class="font-medium">{{ formatCurrency(fee.amount) }}</span>
-                </div>
-                <div class="flex justify-between font-semibold text-sm pt-2 pl-4 border-t">
-                  <span>{{ categoryGroup.category }} Subtotal</span>
-                  <span>{{ formatCurrency(categoryGroup.total) }}</span>
-                </div>
+            <!-- Terms of Payment -->
+            <div class="bg-white rounded-lg border-2 border-gray-300 overflow-hidden shadow-sm">
+              <div class="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3">
+                <h3 class="text-lg font-bold text-white uppercase tracking-wide">Terms of Payment</h3>
               </div>
-
-              <div class="flex justify-between font-bold border-t-2 pt-4 text-lg">
-                <span>TOTAL ASSESSMENT FEE</span>
-                <span class="text-blue-600">{{ formatCurrency(totalAssessmentFee) }}</span>
+              
+              <div class="p-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div class="flex justify-between items-center py-3 px-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                    <span class="text-sm font-semibold text-gray-700">Upon Registration</span>
+                    <span class="text-base font-bold text-gray-900">{{ formatCurrency(latestAssessment.upon_registration ?? latestAssessment.registration ?? (props.termsOfPayment?.registration ?? 0)) }}</span>
+                  </div>
+                  
+                  <div class="flex justify-between items-center py-3 px-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                    <span class="text-sm font-semibold text-gray-700">Prelim</span>
+                    <span class="text-base font-bold text-gray-900">{{ formatCurrency(latestAssessment.prelim ?? (props.termsOfPayment?.prelim ?? 0)) }}</span>
+                  </div>
+                  
+                  <div class="flex justify-between items-center py-3 px-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                    <span class="text-sm font-semibold text-gray-700">Midterm</span>
+                    <span class="text-base font-bold text-gray-900">{{ formatCurrency(latestAssessment.midterm ?? (props.termsOfPayment?.midterm ?? 0)) }}</span>
+                  </div>
+                  
+                  <div class="flex justify-between items-center py-3 px-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                    <span class="text-sm font-semibold text-gray-700">Semi-Final</span>
+                    <span class="text-base font-bold text-gray-900">{{ formatCurrency(latestAssessment.semi_final ?? (props.termsOfPayment?.semi_final ?? 0)) }}</span>
+                  </div>
+                  
+                  <div class="flex justify-between items-center py-3 px-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                    <span class="text-sm font-semibold text-gray-700">Final</span>
+                    <span class="text-base font-bold text-gray-900">{{ formatCurrency(latestAssessment.final ?? (props.termsOfPayment?.final ?? 0)) }}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
+          <!-- ============================================ -->
+          <!-- END CERTIFICATE OF MATRICULATION            -->
+          <!-- ============================================ -->
 
           <!-- Payment History -->
           <div v-if="activeTab === 'history'" class="space-y-4">
@@ -753,8 +752,3 @@ const setPaymentAmount = (percentage: number) => {
     />
   </AppLayout>
 </template>
-
-<style scoped>
-/* small styling tweaks to match Version 1 visual feel while using Version 2 table layout */
-.font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Segoe UI Mono", "Noto Mono", monospace; }
-</style>
