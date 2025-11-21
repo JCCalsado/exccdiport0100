@@ -16,6 +16,7 @@ use App\Http\Controllers\AdminDashboardController;
 use App\Http\Controllers\NotificationController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
+use App\Http\Controllers\CurriculumController;
 
 Route::get('/', function () {
     return Inertia::render('Welcome');
@@ -67,6 +68,15 @@ Route::middleware(['auth', 'verified', 'role:admin,accounting'])->prefix('studen
         ->name('student-fees.curriculum.terms');
     Route::post('/curriculum/preview', [StudentFeeController::class, 'getCurriculumPreview'])
         ->name('student-fees.curriculum.preview');
+});
+
+// Curriculum Management routes (admin/accounting only)
+Route::middleware(['auth', 'verified', 'role:admin,accounting'])->group(function () {
+    Route::resource('curricula', CurriculumController::class);
+    Route::post('curricula/{curriculum}/toggle-status', [CurriculumController::class, 'toggleStatus'])
+        ->name('curricula.toggleStatus');
+    Route::get('curricula/ajax/courses', [CurriculumController::class, 'getCourses'])
+        ->name('curricula.get-courses');
 });
 
 // Transaction routes

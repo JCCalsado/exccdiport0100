@@ -77,6 +77,12 @@ const allNavItems: NavItem[] = [
         icon: Receipt, // Make sure to import Receipt from lucide-vue-next
         roles: ['accounting', 'admin'],
     },
+    {
+        title: 'Curriculum Management',
+        href: route('curricula.index'),
+        icon: BookOpen, // Import from lucide-vue-next
+        roles: ['admin', 'accounting'],
+    },
 ];
 
 // Filter navigation items based on the user's role
