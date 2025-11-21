@@ -21,12 +21,62 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
-import { ArrowLeft, Plus, Download } from 'lucide-vue-next';
+import { ArrowLeft, Plus, Download, FileText } from 'lucide-vue-next';
 import { ref, computed } from 'vue';
+
+
+interface Subject {
+    id: number;
+    code: string;
+    title: string;
+    lec_units: number;
+    lab_units: number;
+    total_units: number;
+    has_lab: boolean;
+    tuition: number;
+    lab_fee: number;
+    total: number;
+}
+
+interface FeeBreakdownItem {
+    name: string;
+    amount: number;
+}
+
+interface PaymentTerms {
+    upon_registration: number;
+    prelim: number;
+    midterm: number;
+    semi_final: number;
+    final: number;
+}
+
+interface Assessment {
+    id: number;
+    assessment_number: string;
+    year_level: string;
+    semester: string;
+    school_year: string;
+    tuition_fee: number;
+    other_fees: number;
+    registration_fee: number;
+    total_assessment: number;
+    subjects: Subject[];
+    fee_breakdown: FeeBreakdownItem[];
+    payment_terms?: PaymentTerms;
+    status: string;
+    curriculum?: {
+        id: number;
+        program: {
+            name: string;
+            major: string;
+        };
+    };
+}
 
 interface Props {
     student: any;
-    assessment: any;
+    assessment: Assessment | null;
     transactions: any[];
     payments: any[];
     feeBreakdown: Array<{
@@ -56,6 +106,31 @@ const paymentForm = useForm({
     payment_method: 'cash',
     description: '',
     payment_date: new Date().toISOString().split('T')[0],
+});
+
+// Computed: Total units
+const totalUnits = computed(() => {
+    if (!props.assessment?.subjects) return { lec: 0, lab: 0, total: 0 };
+    
+    return props.assessment.subjects.reduce((acc, subject) => ({
+        lec: acc.lec + (subject.lec_units || 0),
+        lab: acc.lab + (subject.lab_units || 0),
+        total: acc.total + (subject.total_units || 0),
+    }), { lec: 0, lab: 0, total: 0 });
+});
+
+// Computed: Has OBE curriculum
+const isOBEAssessment = computed(() => {
+    return props.assessment?.curriculum !== undefined && props.assessment?.curriculum !== null;
+});
+
+// Computed: Program name
+const programName = computed(() => {
+    if (isOBEAssessment.value && props.assessment?.curriculum) {
+        const major = props.assessment.curriculum.program.major;
+        return major ? `${props.assessment.curriculum.program.name} - Major: ${major}` : props.assessment.curriculum.program.name;
+    }
+    return props.student.course;
 });
 
 const submitPayment = () => {
@@ -211,6 +286,17 @@ const formatDate = (date: string) => {
                 </div>
             </div>
 
+            <!-- OBE Curriculum Badge -->
+            <div v-if="isOBEAssessment" class="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg p-4 text-white">
+                <div class="flex items-center gap-3">
+                    <FileText class="w-6 h-6" />
+                    <div>
+                        <p class="font-semibold">OBE Curriculum Assessment</p>
+                        <p class="text-sm text-blue-100">Outcome-Based Education System</p>
+                    </div>
+                </div>
+            </div>
+
             <!-- Student Information -->
             <Card>
                 <CardHeader>
@@ -239,8 +325,8 @@ const formatDate = (date: string) => {
                             <p class="font-medium">{{ student.student_id }}</p>
                         </div>
                         <div>
-                            <Label class="text-sm text-gray-600">Course</Label>
-                            <p class="font-medium">{{ student.course }}</p>
+                            <Label class="text-sm text-gray-600">Program/Course</Label>
+                            <p class="font-medium">{{ programName }}</p>
                         </div>
                         <div>
                             <Label class="text-sm text-gray-600">Year Level</Label>
@@ -256,39 +342,149 @@ const formatDate = (date: string) => {
                 </CardContent>
             </Card>
 
-            <!-- Fee Breakdown -->
-            <Card>
+            <!-- Certificate of Matriculation -->
+            <Card v-if="assessment">
                 <CardHeader>
-                    <CardTitle>Fee Breakdown</CardTitle>
-                    <CardDescription>Current assessment details</CardDescription>
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <CardTitle>Certificate of Matriculation</CardTitle>
+                            <CardDescription>Assessment No: {{ assessment.assessment_number }}</CardDescription>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-sm text-gray-600">{{ assessment.semester }} - {{ assessment.school_year }}</p>
+                            <p class="text-sm font-medium">{{ assessment.year_level }}</p>
+                        </div>
+                    </div>
                 </CardHeader>
-                <CardContent class="space-y-4">
-                    <div class="space-y-2">
-                        <div
-                            v-for="breakdown in feeBreakdown"
-                            :key="breakdown.category"
-                            class="flex justify-between items-center p-3 border rounded-lg"
-                        >
-                            <div>
-                                <p class="font-medium">{{ breakdown.category }}</p>
-                                <p class="text-sm text-gray-600">{{ breakdown.items }} items</p>
-                            </div>
-                            <span class="font-bold">{{ formatCurrency(breakdown.total) }}</span>
+                <CardContent class="space-y-6">
+                    <!-- Subjects Table (OBE Format) -->
+                    <div v-if="assessment.subjects && assessment.subjects.length > 0">
+                        <h3 class="font-semibold mb-3 text-gray-900">SUBJECTS</h3>
+                        <div class="overflow-x-auto border rounded-lg">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Subject Code
+                                        </th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Description
+                                        </th>
+                                        <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            UNIT(S)
+                                        </th>
+                                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Time
+                                        </th>
+                                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Day
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <tr
+                                        v-for="subject in assessment.subjects"
+                                        :key="subject.id"
+                                        class="hover:bg-gray-50"
+                                    >
+                                        <td class="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                                            {{ subject.code }}
+                                        </td>
+                                        <td class="px-4 py-3 text-sm text-gray-900">
+                                            {{ subject.title }}
+                                        </td>
+                                        <td class="px-4 py-3 whitespace-nowrap text-sm text-center font-medium text-gray-900">
+                                            {{ subject.total_units }}
+                                        </td>
+                                        <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">
+                                            08:00 AM - 10:00 AM
+                                        </td>
+                                        <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">
+                                            MTWTHF
+                                        </td>
+                                    </tr>
+                                    <!-- Total Row -->
+                                    <tr class="bg-gray-100 font-semibold">
+                                        <td colspan="2" class="px-4 py-3 text-sm text-right text-gray-900">
+                                            TOTAL:
+                                        </td>
+                                        <td class="px-4 py-3 whitespace-nowrap text-sm text-center text-gray-900">
+                                            {{ totalUnits.lec }}
+                                        </td>
+                                        <td class="px-4 py-3 whitespace-nowrap text-sm text-center text-gray-900">
+                                            
+                                        </td>
+                                        <td class="px-4 py-3 whitespace-nowrap text-sm text-center text-gray-900">
+                                            
+                                        </td>
+                                        <td colspan="3" class="px-4 py-3 text-sm text-right"></td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
 
-                    <div class="pt-4 border-t space-y-2">
-                        <div class="flex justify-between items-center text-lg">
-                            <span class="font-medium">Total Assessment</span>
-                            <span class="font-bold">
-                                {{ formatCurrency(assessment?.total_assessment || 0) }}
-                            </span>
+                    <!-- Fees Breakdown -->
+                    <div>
+                        <h3 class="font-semibold mb-3 text-gray-900">FEES</h3>
+                        <div class="space-y-2 bg-gray-50 rounded-lg p-4">
+                            <div class="flex justify-between py-2 border-b">
+                                <span class="text-gray-700">Registration Fee:</span>
+                                <span class="font-medium">{{ formatCurrency(assessment.registration_fee || 0) }}</span>
+                            </div>
+                            <div class="flex justify-between py-2 border-b">
+                                <span class="text-gray-700">Tuition Fee:</span>
+                                <span class="font-medium">{{ formatCurrency(assessment.tuition_fee) }}</span>
+                            </div>
+                            <div class="flex justify-between py-2 border-b">
+                                <span class="text-gray-700">Lab. Fee:</span>
+                                <span class="font-medium"> </span>
+                            </div>
+                            <div class="flex justify-between py-2 border-b">
+                                <span class="text-gray-700">Misc. Fee:</span>
+                                <span class="font-medium"> </span>
+                            </div>
+                            <div class="flex justify-between py-3 font-bold text-lg border-t-2 border-gray-300 mt-2">
+                                <span class="text-gray-900">Total Assessment Fee:</span>
+                                <span class="text-blue-600">{{ formatCurrency(assessment.total_assessment) }}</span>
+                            </div>
                         </div>
-                        <div class="flex justify-between items-center text-lg">
-                            <span class="font-medium">Current Balance</span>
+                    </div>
+
+                    <!-- Terms of Payment -->
+                    <div v-if="assessment.payment_terms">
+                        <h3 class="font-semibold mb-3 text-gray-900">TERMS OF PAYMENT</h3>
+                        <div class="space-y-2 bg-gray-50 rounded-lg p-4">
+                            <div class="flex justify-between py-2">
+                                <span class="text-gray-700">Upon Registration</span>
+                                <span class="font-medium">{{ formatCurrency(assessment.payment_terms.upon_registration) }}</span>
+                            </div>
+                            <div class="flex justify-between py-2">
+                                <span class="text-gray-700">Prelim</span>
+                                <span class="font-medium">{{ formatCurrency(assessment.payment_terms.prelim) }}</span>
+                            </div>
+                            <div class="flex justify-between py-2">
+                                <span class="text-gray-700">Midterm</span>
+                                <span class="font-medium">{{ formatCurrency(assessment.payment_terms.midterm) }}</span>
+                            </div>
+                            <div class="flex justify-between py-2">
+                                <span class="text-gray-700">Semi-Final</span>
+                                <span class="font-medium">{{ formatCurrency(assessment.payment_terms.semi_final) }}</span>
+                            </div>
+                            <div class="flex justify-between py-2">
+                                <span class="text-gray-700">Final</span>
+                                <span class="font-medium">{{ formatCurrency(assessment.payment_terms.final) }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Current Balance -->
+                    <div class="pt-4 border-t-2">
+                        <div class="flex justify-between items-center p-4 bg-blue-50 rounded-lg border border-blue-200">
+                            <span class="font-medium text-lg">Current Balance</span>
                             <span
-                                class="font-bold"
-                                :class="(student.account?.balance || 0) > 0 ? 'text-red-500' : 'text-green-500'"
+                                class="text-2xl font-bold"
+                                :class="(student.account?.balance || 0) > 0 ? 'text-red-600' : 'text-green-600'"
                             >
                                 {{ formatCurrency(Math.abs(student.account?.balance || 0)) }}
                             </span>
