@@ -81,6 +81,9 @@ Route::middleware(['auth', 'verified', 'role:admin,accounting'])->group(function
         ->name('curricula.toggleStatus');
     Route::get('curricula/ajax/courses', [CurriculaController::class, 'getCourses'])
         ->name('curricula.get-courses');
+
+    Route::get('curricula/ajax/courses', [CurriculaController::class, 'getCourses'])
+        ->name('curricula.get-courses');
 });
 
 // Transaction routes

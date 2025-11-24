@@ -105,15 +105,13 @@ class Curriculum extends Model
         $total = $this->calculateTotalAssessment();
         $perTerm = round($total / $this->term_count, 2);
         
-        $terms = [
+        return [
             'upon_registration' => $perTerm,
             'prelim' => $perTerm,
             'midterm' => $perTerm,
             'semi_final' => $perTerm,
-            'final' => $total - ($perTerm * 4), // Remaining balance
+            'final' => $total - ($perTerm * 4),
         ];
-
-        return $terms;
     }
 
     public function getTermDescriptionAttribute(): string

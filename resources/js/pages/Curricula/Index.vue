@@ -12,8 +12,9 @@ import {
   Eye, 
   Search,
   GraduationCap,
-  FileText,
-  Calculator
+  Trash2,
+  PowerOff,
+  Power,
 } from 'lucide-vue-next'
 
 interface Program {
@@ -22,14 +23,6 @@ interface Program {
   name: string
   major: string | null
   is_active: boolean
-}
-
-interface Course {
-  id: number
-  code: string
-  title: string
-  total_units: number
-  has_lab: boolean
 }
 
 interface Curriculum {
@@ -77,7 +70,7 @@ const breadcrumbs = [
   { title: 'Curriculum Management' },
 ]
 
-// Filters
+// State
 const search = ref(props.filters.search || '')
 const selectedProgram = ref(props.filters.program || '')
 const selectedYearLevel = ref(props.filters.year_level || '')
@@ -102,6 +95,36 @@ const applyFilters = () => {
   )
 }
 
+// Clear all filters
+const clearFilters = () => {
+  search.value = ''
+  selectedProgram.value = ''
+  selectedYearLevel.value = ''
+  selectedSemester.value = ''
+  selectedSchoolYear.value = ''
+  applyFilters()
+}
+
+// Toggle curriculum status
+const toggleStatus = (curriculumId: number) => {
+  router.post(
+    route('curricula.toggleStatus', curriculumId),
+    {},
+    {
+      preserveScroll: true,
+    }
+  )
+}
+
+// Delete curriculum with native confirmation
+const deleteCurriculum = (curriculumId: number, programCode: string) => {
+  if (confirm(`Are you sure you want to delete the curriculum for ${programCode}? This action cannot be undone.`)) {
+    router.delete(route('curricula.destroy', curriculumId), {
+      preserveScroll: true,
+    })
+  }
+}
+
 // Format currency
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('en-PH', {
@@ -114,6 +137,9 @@ const formatCurrency = (amount: number) => {
 const getStatusColor = (isActive: boolean) => {
   return isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
 }
+
+// Stats
+const activeCount = computed(() => props.curricula.data.filter(c => c.is_active).length)
 </script>
 
 <template>
@@ -156,22 +182,45 @@ const getStatusColor = (isActive: boolean) => {
         <div class="bg-white rounded-lg shadow p-6">
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-sm text-gray-600">Active Programs</p>
-              <p class="text-2xl font-bold">{{ programs.length }}</p>
+              <p class="text-sm text-gray-600">Active Curricula</p>
+              <p class="text-2xl font-bold">{{ activeCount }}</p>
             </div>
             <div class="p-3 bg-green-100 rounded-lg">
-              <GraduationCap class="w-6 h-6 text-green-600" />
+              <Power class="w-6 h-6 text-green-600" />
             </div>
           </div>
         </div>
-        
+
+        <div class="bg-white rounded-lg shadow p-6">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm text-gray-600">Programs</p>
+              <p class="text-2xl font-bold">{{ programs.length }}</p>
+            </div>
+            <div class="p-3 bg-purple-100 rounded-lg">
+              <GraduationCap class="w-6 h-6 text-purple-600" />
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-6">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm text-gray-600">School Years</p>
+              <p class="text-2xl font-bold">{{ schoolYears.length }}</p>
+            </div>
+            <div class="p-3 bg-orange-100 rounded-lg">
+              <BookOpen class="w-6 h-6 text-orange-600" />
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Filters -->
       <div class="bg-white p-4 rounded-lg border shadow-sm">
-        <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-6 gap-4">
           <!-- Search -->
-          <div class="relative">
+          <div class="relative md:col-span-2">
             <Search class="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
             <Input
               v-model="search"
@@ -189,7 +238,7 @@ const getStatusColor = (isActive: boolean) => {
           >
             <option value="">All Programs</option>
             <option v-for="program in programs" :key="program.id" :value="program.id">
-              {{ program.code }} - {{ program.major }}
+              {{ program.code }}
             </option>
           </select>
 
@@ -217,17 +266,14 @@ const getStatusColor = (isActive: boolean) => {
             </option>
           </select>
 
-          <!-- School Year Filter -->
-          <select
-            v-model="selectedSchoolYear"
-            @change="applyFilters"
-            class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          <!-- Clear Filters -->
+          <Button
+            variant="outline"
+            @click="clearFilters"
+            class="w-full"
           >
-            <option value="">All School Years</option>
-            <option v-for="sy in schoolYears" :key="sy" :value="sy">
-              {{ sy }}
-            </option>
-          </select>
+            Clear Filters
+          </Button>
         </div>
       </div>
 
@@ -243,19 +289,19 @@ const getStatusColor = (isActive: boolean) => {
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                   Term
                 </th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
                   Courses
                 </th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Total Units
+                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                  Units
                 </th>
                 <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  Total Assessment
+                  Assessment
                 </th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
                   Status
                 </th>
-                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
                   Actions
                 </th>
               </tr>
@@ -263,44 +309,58 @@ const getStatusColor = (isActive: boolean) => {
             <tbody class="bg-white divide-y divide-gray-200">
               <tr v-if="curricula.data.length === 0">
                 <td colspan="7" class="px-6 py-8 text-center text-gray-500">
-                  No curricula found
+                  <div class="flex flex-col items-center gap-2">
+                    <BookOpen class="w-12 h-12 text-gray-300" />
+                    <p>No curricula found</p>
+                    <Link :href="route('curricula.create')">
+                      <Button size="sm" class="mt-2">Create First Curriculum</Button>
+                    </Link>
+                  </div>
                 </td>
               </tr>
               <tr v-for="curriculum in curricula.data" :key="curriculum.id" class="hover:bg-gray-50">
                 <td class="px-6 py-4">
                   <div>
                     <p class="font-medium text-gray-900">{{ curriculum.program.code }}</p>
-                    <p class="text-sm text-gray-500">{{ curriculum.program.major }}</p>
+                    <p class="text-sm text-gray-500 truncate max-w-xs">
+                      {{ curriculum.program.major }}
+                    </p>
                   </div>
                 </td>
                 <td class="px-6 py-4">
                   <div>
                     <p class="font-medium text-gray-900">{{ curriculum.year_level }}</p>
-                    <p class="text-sm text-gray-500">{{ curriculum.semester }} - {{ curriculum.school_year }}</p>
+                    <p class="text-sm text-gray-500">
+                      {{ curriculum.semester }} • {{ curriculum.school_year }}
+                    </p>
                   </div>
                 </td>
-                <td class="px-6 py-4 text-sm text-gray-900">
-                  {{ curriculum.courses_count }} courses
-                </td>
-                <td class="px-6 py-4 text-sm text-gray-900">
-                  {{ curriculum.total_units }} units
-                </td>
-                <td class="px-6 py-4 text-right font-medium text-gray-900">
-                  {{ formatCurrency(curriculum.total_assessment) }}
-                </td>
-                <td class="px-6 py-4">
-                  <span 
-                    class="px-2 py-1 text-xs font-semibold rounded-full"
-                    :class="getStatusColor(curriculum.is_active)"
-                  >
-                    {{ curriculum.is_active ? 'Active' : 'Inactive' }}
+                <td class="px-6 py-4 text-center">
+                  <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                    {{ curriculum.courses_count }}
                   </span>
                 </td>
-                <td class="px-6 py-4 text-right">
-                  <div class="flex items-center justify-end gap-2">
+                <td class="px-6 py-4 text-center text-sm font-medium text-gray-900">
+                  {{ curriculum.total_units }}
+                </td>
+                <td class="px-6 py-4 text-right font-semibold text-gray-900">
+                  {{ formatCurrency(curriculum.total_assessment) }}
+                </td>
+                <td class="px-6 py-4 text-center">
+                  <button
+                    @click="toggleStatus(curriculum.id)"
+                    class="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-full transition-colors"
+                    :class="getStatusColor(curriculum.is_active)"
+                  >
+                    <component :is="curriculum.is_active ? Power : PowerOff" class="w-3 h-3" />
+                    {{ curriculum.is_active ? 'Active' : 'Inactive' }}
+                  </button>
+                </td>
+                <td class="px-6 py-4">
+                  <div class="flex items-center justify-center gap-2">
                     <Link :href="route('curricula.show', curriculum.id)">
                       <button 
-                        class="text-blue-600 hover:text-blue-900 p-1 rounded hover:bg-blue-50"
+                        class="text-blue-600 hover:text-blue-900 p-2 rounded hover:bg-blue-50 transition-colors"
                         title="View Details"
                       >
                         <Eye class="w-4 h-4" />
@@ -308,12 +368,19 @@ const getStatusColor = (isActive: boolean) => {
                     </Link>
                     <Link :href="route('curricula.edit', curriculum.id)">
                       <button 
-                        class="text-green-600 hover:text-green-900 p-1 rounded hover:bg-green-50"
+                        class="text-green-600 hover:text-green-900 p-2 rounded hover:bg-green-50 transition-colors"
                         title="Edit"
                       >
                         <Edit class="w-4 h-4" />
                       </button>
                     </Link>
+                    <button 
+                      @click="deleteCurriculum(curriculum.id, curriculum.program.code)"
+                      class="text-red-600 hover:text-red-900 p-2 rounded hover:bg-red-50 transition-colors"
+                      title="Delete"
+                    >
+                      <Trash2 class="w-4 h-4" />
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -346,7 +413,7 @@ const getStatusColor = (isActive: boolean) => {
                 v-else
                 :class="[
                   'px-3 py-1 rounded border text-sm',
-                  'bg-gray-100 text-gray-400 border-gray-300 cursor-not-allowed opacity-60'
+                  'bg-gray-100 text-gray-400 border-gray-300 cursor-not-allowed'
                 ]"
                 v-html="link.label"
               />
