@@ -15,6 +15,7 @@ import {
   Trash2,
   PowerOff,
   Power,
+  Download
 } from 'lucide-vue-next'
 
 interface Program {
@@ -23,6 +24,14 @@ interface Program {
   name: string
   major: string | null
   is_active: boolean
+}
+
+interface Course {
+  id: number
+  code: string
+  title: string
+  total_units: number
+  has_lab: boolean
 }
 
 interface Curriculum {
@@ -76,6 +85,8 @@ const selectedProgram = ref(props.filters.program || '')
 const selectedYearLevel = ref(props.filters.year_level || '')
 const selectedSemester = ref(props.filters.semester || '')
 const selectedSchoolYear = ref(props.filters.school_year || '')
+const showDeleteDialog = ref(false)
+const curriculumToDelete = ref<number | null>(null)
 
 // Apply filters
 const applyFilters = () => {
@@ -112,15 +123,27 @@ const toggleStatus = (curriculumId: number) => {
     {},
     {
       preserveScroll: true,
+      onSuccess: () => {
+        // Success handled by backend
+      },
     }
   )
 }
 
-// Delete curriculum with native confirmation
-const deleteCurriculum = (curriculumId: number, programCode: string) => {
-  if (confirm(`Are you sure you want to delete the curriculum for ${programCode}? This action cannot be undone.`)) {
-    router.delete(route('curricula.destroy', curriculumId), {
+// Delete curriculum
+const confirmDelete = (curriculumId: number) => {
+  curriculumToDelete.value = curriculumId
+  showDeleteDialog.value = true
+}
+
+const deleteCurriculum = () => {
+  if (curriculumToDelete.value) {
+    router.delete(route('curricula.destroy', curriculumToDelete.value), {
       preserveScroll: true,
+      onSuccess: () => {
+        showDeleteDialog.value = false
+        curriculumToDelete.value = null
+      },
     })
   }
 }
@@ -140,6 +163,7 @@ const getStatusColor = (isActive: boolean) => {
 
 // Stats
 const activeCount = computed(() => props.curricula.data.filter(c => c.is_active).length)
+const totalPrograms = computed(() => new Set(props.curricula.data.map(c => c.program.id)).size)
 </script>
 
 <template>
@@ -375,7 +399,7 @@ const activeCount = computed(() => props.curricula.data.filter(c => c.is_active)
                       </button>
                     </Link>
                     <button 
-                      @click="deleteCurriculum(curriculum.id, curriculum.program.code)"
+                      @click="confirmDelete(curriculum.id)"
                       class="text-red-600 hover:text-red-900 p-2 rounded hover:bg-red-50 transition-colors"
                       title="Delete"
                     >
@@ -422,5 +446,24 @@ const activeCount = computed(() => props.curricula.data.filter(c => c.is_active)
         </div>
       </div>
     </div>
+
+    <!-- Delete Confirmation Dialog -->
+    <AlertDialog :open="showDeleteDialog" @update:open="showDeleteDialog = $event">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete Curriculum</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to delete this curriculum? This action cannot be undone.
+            Students enrolled in this curriculum will not be affected.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction @click="deleteCurriculum" class="bg-red-600 hover:bg-red-700">
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </AppLayout>
 </template>
