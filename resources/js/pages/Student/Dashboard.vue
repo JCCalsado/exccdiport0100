@@ -133,7 +133,7 @@ const handleDownload = (transaction: Transaction) => {
               <FileText :size="24" class="text-blue-600" />
             </div>
           </div>
-          <p class="text-sm text-gray-600">Total Fees</p>
+          <p class="text-sm text-gray-600">Total Assessment Fee</p>
           <p class="text-2xl font-bold text-gray-900">
             {{ formatCurrency(stats.total_fees) }}
           </p>

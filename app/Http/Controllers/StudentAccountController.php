@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use Inertia\Inertia;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use App\Models\Fee;
+use App\Models\StudentAssessment;
+use App\Models\Transaction;
+use App\Models\Payment;
 
 class StudentAccountController extends Controller
 {
@@ -18,14 +20,77 @@ class StudentAccountController extends Controller
             $user->account()->create(['balance' => 0]);
         }
 
-        // Load transactions (via user, not account)
+        // Load user with necessary relationships
         $user->load(['transactions' => function ($query) {
             $query->orderBy('created_at', 'desc');
         }]);
 
-        $student = $user;
-        $account = $user->account;
-        $transactions = $user->transactions;
+        // Get latest active assessment
+        $latestAssessment = StudentAssessment::where('user_id', $user->id)
+            ->where('status', 'active')
+            ->latest()
+            ->first();
+
+        // Get all transactions with fee relation
+        $transactions = Transaction::where('user_id', $user->id)
+            ->with('fee')
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        // Get student payments if student model exists
+        $payments = collect();
+        if ($user->student) {
+            $payments = Payment::where('student_id', $user->student->id)
+                ->orderBy('paid_at', 'desc')
+                ->get();
+        }
+
+        // Build fee breakdown from transactions
+        $feeBreakdown = $transactions->where('kind', 'charge')
+            ->groupBy('type')
+            ->map(function ($group) {
+                return [
+                    'category' => $group->first()->type,
+                    'total' => $group->sum('amount'),
+                    'items' => $group->count(),
+                ];
+            })->values();
+
+        // Prepare assessment data
+        $assessment = null;
+        $assessmentLines = [];
+        $termsOfPayment = null;
+
+        if ($latestAssessment) {
+            $assessment = [
+                'id' => $latestAssessment->id,
+                'assessment_number' => $latestAssessment->assessment_number,
+                'school_year' => $latestAssessment->school_year,
+                'semester' => $latestAssessment->semester,
+                'year_level' => $latestAssessment->year_level,
+                'status' => $latestAssessment->status,
+                'tuition_fee' => $latestAssessment->tuition_fee,
+                'other_fees' => $latestAssessment->other_fees,
+                'registration_fee' => $latestAssessment->registration_fee ?? 0,
+                'total_assessment' => $latestAssessment->total_assessment,
+                'subjects' => $latestAssessment->subjects,
+                'total_units' => collect($latestAssessment->subjects ?? [])->sum('units'),
+                'created_at' => $latestAssessment->created_at,
+            ];
+
+            $assessmentLines = $latestAssessment->subjects ?? [];
+            $termsOfPayment = $latestAssessment->payment_terms;
+        }
+
+        // Build fees list from transactions
+        $fees = $transactions->where('kind', 'charge')->map(function ($t) {
+            return [
+                'id' => $t->fee_id ?? null,
+                'name' => $t->meta['fee_name'] ?? ($t->fee->name ?? ($t->type ?? 'Fee')),
+                'amount' => $t->amount,
+                'category' => $t->type ?? 'Other',
+            ];
+        })->values();
 
         // Determine current term
         $year = now()->year;
@@ -40,59 +105,37 @@ class StudentAccountController extends Controller
         }
 
         $currentTerm = [
-            'year' => $year,
-            'semester' => $semester,
+            'year' => $latestAssessment->year ?? $year,
+            'semester' => $latestAssessment->semester ?? $semester,
         ];
 
-        // Load Fee List
-        $fees = Fee::active()
-            ->where('year_level', $user->year_level)
-            ->where('semester', $semester)
-            ->where('school_year', $year . '-' . ($year + 1))
-            ->select('name', 'amount', 'category')
-            ->get();
-
-        if ($fees->isEmpty()) {
-            $fees = collect([
-                ['name' => 'Registration Fee', 'amount' => 200.0, 'category' => 'Miscellaneous'],
-                ['name' => 'Tuition Fee', 'amount' => 5000.0, 'category' => 'Tuition'],
-                ['name' => 'Lab Fee', 'amount' => 2000.0, 'category' => 'Laboratory'],
-                ['name' => 'Library Fee', 'amount' => 500.0, 'category' => 'Library'],
-                ['name' => 'Misc. Fee', 'amount' => 1200.0, 'category' => 'Miscellaneous'],
-            ]);
-        }
-
-        // ----- STATS -----
-        $total_fees = $fees->sum('amount');
-
-        $total_paid = $transactions
-            ->where('kind', 'payment')
+        // Calculate statistics
+        $totalCharges = $transactions->where('kind', 'charge')->sum('amount');
+        $totalPayments = $transactions->where('kind', 'payment')
             ->where('status', 'paid')
             ->sum('amount');
-
-        $remaining_balance = max(0, $total_fees - $total_paid);
-
-        $pending_charges_count = $transactions
-            ->where('kind', 'charge')
+        $remainingBalance = max(0, $totalCharges - $totalPayments);
+        $pendingChargesCount = $transactions->where('kind', 'charge')
             ->where('status', 'pending')
             ->count();
 
         return Inertia::render('Student/AccountOverview', [
-            'student' => $student,
-            'account' => $account,
-            'assessment' => null,
-            'assessmentLines' => [],
-            'termsOfPayment' => null,
+            'student' => $user,
+            'account' => $user->account,
+            'assessment' => $assessment,
+            'assessmentLines' => $assessmentLines,
+            'termsOfPayment' => $termsOfPayment,
             'transactions' => $transactions,
             'fees' => $fees,
             'currentTerm' => $currentTerm,
-            'tab' => request('tab'),
+            'tab' => request('tab', 'fees'),
             'stats' => [
-                'total_fees' => $total_fees,
-                'total_paid' => $total_paid,
-                'remaining_balance' => $remaining_balance,
-                'pending_charges_count' => $pending_charges_count,
+                'total_fees' => (float) $totalCharges,
+                'total_paid' => (float) $totalPayments,
+                'remaining_balance' => (float) $remainingBalance,
+                'pending_charges_count' => $pendingChargesCount,
             ],
+            'feeBreakdown' => $feeBreakdown,
         ]);
     }
 }

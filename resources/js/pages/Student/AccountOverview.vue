@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useFormatters } from '@/composables/useFormatters'
 import type { PaymentMethod } from '@/types/transaction'
+import { router } from '@inertiajs/vue3'
 import {
   CreditCard,
   CheckCircle,
@@ -87,6 +88,12 @@ interface Props {
     pending_charges_count: number
   }
 }
+
+router.visit(route('student.account'), {
+    data: { tab: 'payment' },
+    preserveState: true,
+    preserveScroll: true,
+})
 
 const props = withDefaults(defineProps<Props>(), {
   student: () => ({}),
