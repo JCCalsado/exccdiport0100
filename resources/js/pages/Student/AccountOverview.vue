@@ -79,6 +79,13 @@ interface Props {
   fees?: { name: string; amount: number; category?: string }[]
   currentTerm?: { year: number; semester: string }
   tab?: 'fees' | 'history' | 'payment'
+
+  stats?: {
+    total_fees: number
+    total_paid: number
+    remaining_balance: number
+    pending_charges_count: number
+  }
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -118,47 +125,98 @@ const paymentForm = useForm({
   description: 'Payment for fees',
 })
 
+// ============================================
+// CERTIFICATE OF MATRICULATION DATA
+// ============================================
+
 const latestAssessment = computed(() => props.assessment || {})
 
-const totalAssessmentFee = computed(() => {
-  if (typeof latestAssessment.value.total_assessment === 'number') {
-    return latestAssessment.value.total_assessment
-  }
-  const tuition = Number(latestAssessment.value.tuition_fee || 0)
-  const other = Number(latestAssessment.value.other_fees || 0)
-  const reg = Number(latestAssessment.value.registration_fee || 0)
-  const lab = Number(latestAssessment.value.lab_fee || 0)
-  const misc = Number(latestAssessment.value.misc_fee || 0)
-  if (tuition || other || reg || lab || misc) {
-    return Math.round((tuition + other + reg + lab + misc) * 100) / 100
-  }
-  return props.fees?.reduce((s, f) => s + Number(f.amount || 0), 0) ?? 0
-})
+const studentInfo = computed(() => ({
+  name: props.student?.full_name || props.student?.name || props.account?.student_name || 'N/A',
+  course: props.account?.course || props.student?.course || props.student?.program || 'N/A',
+  yearLevel: props.student?.year_level || props.account?.year_level || 'N/A',
+  major: props.student?.major || props.student?.specialization || 'N/A',
+  registeredAt: props.account?.registered_at || props.account?.enrollment_date || null,
+  studentNumber: props.student?.student_number || props.student?.id_number || props.account?.account_number || 'N/A',
+}))
+
+const termInfo = computed(() => ({
+  semester: props.currentTerm?.semester || latestAssessment.value.semester || '1st Sem',
+  year: props.currentTerm?.year || new Date().getFullYear(),
+  schoolYear: latestAssessment.value.school_year || `${props.currentTerm?.year || new Date().getFullYear()}-${(props.currentTerm?.year || new Date().getFullYear()) + 1}`,
+  assessmentNumber: latestAssessment.value.assessment_number || props.account?.assessment_number || 'N/A',
+}))
 
 const subjects = computed<SubjectLine[]>(() => {
-  if (Array.isArray(latestAssessment.value.subjects) && latestAssessment.value.subjects.length) {
-    return latestAssessment.value.subjects.map((s: any) => ({
-      subject_code: s.subject_code ?? s.code ?? '',
-      description: s.description ?? s.title ?? s.name ?? '',
-      units: Number(s.units ?? s.total_units ?? s.unit ?? 0),
-      lec_units: Number(s.lec_units ?? 0),
-      lab_units: Number(s.lab_units ?? 0),
+  // Priority: assessment.subjects > assessmentLines
+  const subjectList = latestAssessment.value.subjects || props.assessmentLines || []
+  
+  if (Array.isArray(subjectList) && subjectList.length) {
+    return subjectList.map((s: any) => ({
+      subject_code: s.subject_code ?? s.code ?? s.course_code ?? '',
+      description: s.description ?? s.title ?? s.name ?? s.subject_name ?? '',
+      units: Number(s.units ?? s.total_units ?? s.unit ?? s.credit_units ?? 0),
+      lec_units: Number(s.lec_units ?? s.lecture_units ?? 0),
+      lab_units: Number(s.lab_units ?? s.laboratory_units ?? 0),
       tuition: Number(s.tuition ?? 0),
       lab_fee: Number(s.lab_fee ?? s.lab ?? 0),
       misc_fee: Number(s.misc_fee ?? s.misc ?? 0),
-      total: Number(s.total ?? (s.tuition ?? 0) + (s.lab_fee ?? 0) + (s.misc_fee ?? 0)),
-      semester: s.semester ?? latestAssessment.value.semester ?? '',
-      time: s.time ?? '',
-      day: s.day ?? '',
+      total: Number(s.total ?? (Number(s.tuition ?? 0) + Number(s.lab_fee ?? 0) + Number(s.misc_fee ?? 0))),
+      semester: s.semester ?? termInfo.value.semester,
+      time: s.time ?? s.schedule_time ?? '',
+      day: s.day ?? s.schedule_day ?? '',
     }))
   }
   return []
 })
 
 const totalUnits = computed(() => {
-  if (typeof latestAssessment.value.total_units === 'number') return latestAssessment.value.total_units
-  return subjects.value.reduce((s, r) => s + Number(r.units || 0), 0)
+  if (typeof latestAssessment.value.total_units === 'number' && latestAssessment.value.total_units > 0) {
+    return latestAssessment.value.total_units
+  }
+  const calculated = subjects.value.reduce((sum, subject) => sum + Number(subject.units || 0), 0)
+  return calculated > 0 ? calculated : 0
 })
+
+const feesBreakdown = computed(() => ({
+  registration: Number(latestAssessment.value.registration_fee ?? latestAssessment.value.registration ?? 0),
+  tuition: Number(latestAssessment.value.tuition_fee ?? 0),
+  lab: Number(latestAssessment.value.lab_fee ?? 0),
+  misc: Number(latestAssessment.value.misc_fee ?? 0),
+  other: Number(latestAssessment.value.other_fees ?? 0),
+}))
+
+const totalAssessmentFee = computed(() => {
+  // Priority: explicit total > calculated sum
+  if (typeof latestAssessment.value.total_assessment === 'number' && latestAssessment.value.total_assessment > 0) {
+    return latestAssessment.value.total_assessment
+  }
+  
+  const sum = feesBreakdown.value.registration + 
+              feesBreakdown.value.tuition + 
+              feesBreakdown.value.lab + 
+              feesBreakdown.value.misc + 
+              feesBreakdown.value.other
+  
+  if (sum > 0) {
+    return Math.round(sum * 100) / 100
+  }
+  
+  // Fallback to props.fees
+  return props.fees?.reduce((sum, fee) => sum + Number(fee.amount || 0), 0) ?? 0
+})
+
+const termsOfPaymentBreakdown = computed(() => ({
+  upon_registration: latestAssessment.value.upon_registration ?? latestAssessment.value.registration ?? props.termsOfPayment?.upon_registration ?? props.termsOfPayment?.registration ?? 0,
+  prelim: latestAssessment.value.prelim ?? props.termsOfPayment?.prelim ?? 0,
+  midterm: latestAssessment.value.midterm ?? props.termsOfPayment?.midterm ?? 0,
+  semi_final: latestAssessment.value.semi_final ?? props.termsOfPayment?.semi_final ?? 0,
+  final: latestAssessment.value.final ?? props.termsOfPayment?.final ?? 0,
+}))
+
+// ============================================
+// PAYMENT TRACKING
+// ============================================
 
 const totalPaid = computed(() => {
   return (props.transactions ?? [])
@@ -287,14 +345,11 @@ const downloadPDF = () => {
       <!-- Header -->
       <div class="mb-6">
         <h1 class="text-3xl font-bold">My Account Overview</h1>
-        <p v-if="currentTerm" class="text-gray-600 mt-1">
-          {{ currentTerm.semester }} - {{ currentTerm.year }}-{{ currentTerm.year + 1 }}
+        <p class="text-gray-600 mt-1">
+          {{ termInfo.semester }} - {{ termInfo.schoolYear }}
         </p>
-        <p v-if="latestAssessment.assessment_number" class="text-sm text-gray-500 mt-1">
-          Assessment No: {{ latestAssessment.assessment_number }}
-        </p>
-        <p v-else-if="props.account?.account_number" class="text-sm text-gray-500 mt-1">
-          Account No: {{ props.account.account_number }}
+        <p class="text-sm text-gray-500 mt-1">
+          Assessment No: {{ termInfo.assessmentNumber }}
         </p>
       </div>
 
@@ -308,11 +363,11 @@ const downloadPDF = () => {
           </div>
           <h3 class="text-sm font-medium text-gray-600 mb-2">Total Assessment Fee</h3>
           <p class="text-3xl font-bold text-blue-600">
-            {{ formatCurrency(totalAssessmentFee) }}
+            {{ formatCurrency(props.stats?.total_fees ?? 0) }}
           </p>
-          <p v-if="latestAssessment.tuition_fee || latestAssessment.other_fees" class="text-xs text-gray-500 mt-2">
-            Tuition: {{ formatCurrency(latestAssessment.tuition_fee || 0) }} •
-            Other: {{ formatCurrency(latestAssessment.other_fees || 0) }}
+          <p v-if="feesBreakdown.tuition || feesBreakdown.other" class="text-xs text-gray-500 mt-2">
+            Tuition: {{ formatCurrency(feesBreakdown.tuition) }} •
+            Other: {{ formatCurrency(feesBreakdown.other) }}
           </p>
         </div>
 
@@ -420,7 +475,7 @@ const downloadPDF = () => {
         <!-- Tab Content -->
         <div class="p-6">
           <!-- ============================================ -->
-          <!-- CERTIFICATE OF MATRICULATION - OPTIMIZED    -->
+          <!-- CERTIFICATE OF MATRICULATION FORM          -->
           <!-- ============================================ -->
           <div v-if="activeTab === 'fees'" class="space-y-6">
             <h2 class="text-2xl font-bold text-gray-900 uppercase tracking-wide border-b-2 border-blue-600 pb-2">
@@ -432,32 +487,39 @@ const downloadPDF = () => {
               <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div class="space-y-1">
                   <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</div>
-                  <div class="text-base font-bold text-gray-900">{{ props.student?.full_name || props.account?.student_name || props.student?.name || 'Student Name' }}</div>
+                  <div class="text-base font-bold text-gray-900">{{ studentInfo.name }}</div>
+                </div>
+                
+                <div class="space-y-1">
+                  <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Student ID</div>
+                  <div class="text-base font-bold text-gray-900">{{ studentInfo.studentNumber }}</div>
                 </div>
                 
                 <div class="space-y-1">
                   <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Course & Year</div>
-                  <div class="text-base font-bold text-gray-900">{{ props.account?.course || props.student?.course || '-' }} - {{ props.student?.year_level || props.account?.year_level || '-' }}</div>
+                  <div class="text-base font-bold text-gray-900">{{ studentInfo.course }} - {{ studentInfo.yearLevel }}</div>
                 </div>
                 
                 <div class="space-y-1">
                   <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Semester/Summer</div>
-                  <div class="text-base font-bold text-gray-900">{{ currentTerm?.semester || latestAssessment.semester || '1st Sem' }}</div>
+                  <div class="text-base font-bold text-gray-900">{{ termInfo.semester }}</div>
                 </div>
                 
                 <div class="space-y-1">
                   <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider">School Year</div>
-                  <div class="text-base font-bold text-gray-900">{{ latestAssessment.school_year || `${currentTerm?.year}-${(currentTerm?.year || 2025) + 1}` }}</div>
+                  <div class="text-base font-bold text-gray-900">{{ termInfo.schoolYear }}</div>
                 </div>
                 
                 <div class="space-y-1">
                   <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Major</div>
-                  <div class="text-base font-bold text-gray-900">{{ props.student?.major || 'N/A' }}</div>
+                  <div class="text-base font-bold text-gray-900">{{ studentInfo.major }}</div>
                 </div>
                 
                 <div class="space-y-1">
                   <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Registration Date</div>
-                  <div class="text-base font-bold text-gray-900">{{ props.account?.registered_at ? formatDate(props.account.registered_at, 'short') : 'N/A' }}</div>
+                  <div class="text-base font-bold text-gray-900">
+                    {{ studentInfo.registeredAt ? formatDate(studentInfo.registeredAt, 'short') : 'N/A' }}
+                  </div>
                 </div>
               </div>
             </div>
@@ -548,22 +610,22 @@ const downloadPDF = () => {
               <div class="p-6 space-y-3">
                 <div class="flex justify-between items-center py-3 border-b border-gray-200">
                   <span class="text-sm font-semibold text-gray-700">Registration Fee</span>
-                  <span class="text-base font-bold text-gray-900">{{ formatCurrency(latestAssessment.registration_fee || latestAssessment.registration || 0) }}</span>
+                  <span class="text-base font-bold text-gray-900">{{ formatCurrency(feesBreakdown.registration) }}</span>
                 </div>
                 
                 <div class="flex justify-between items-center py-3 border-b border-gray-200">
                   <span class="text-sm font-semibold text-gray-700">Tuition Fee</span>
-                  <span class="text-base font-bold text-gray-900">{{ formatCurrency(latestAssessment.tuition_fee || 0) }}</span>
+                  <span class="text-base font-bold text-gray-900">{{ formatCurrency(feesBreakdown.tuition) }}</span>
                 </div>
                 
                 <div class="flex justify-between items-center py-3 border-b border-gray-200">
                   <span class="text-sm font-semibold text-gray-700">Laboratory Fee</span>
-                  <span class="text-base font-bold text-gray-900">{{ formatCurrency(latestAssessment.lab_fee || 0) }}</span>
+                  <span class="text-base font-bold text-gray-900">{{ formatCurrency(feesBreakdown.lab) }}</span>
                 </div>
                 
                 <div class="flex justify-between items-center py-3 border-b-2 border-gray-300">
                   <span class="text-sm font-semibold text-gray-700">Miscellaneous Fee</span>
-                  <span class="text-base font-bold text-gray-900">{{ formatCurrency(latestAssessment.misc_fee || 0) }}</span>
+                  <span class="text-base font-bold text-gray-900">{{ formatCurrency(feesBreakdown.misc) }}</span>
                 </div>
                 
                 <div class="flex justify-between items-center pt-4 pb-2 bg-gradient-to-r from-blue-50 to-indigo-50 px-4 py-4 rounded-lg mt-4">
@@ -583,34 +645,34 @@ const downloadPDF = () => {
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div class="flex justify-between items-center py-3 px-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
                     <span class="text-sm font-semibold text-gray-700">Upon Registration</span>
-                    <span class="text-base font-bold text-gray-900">{{ formatCurrency(latestAssessment.upon_registration ?? latestAssessment.registration ?? (props.termsOfPayment?.registration ?? 0)) }}</span>
+                    <span class="text-base font-bold text-gray-900">{{ formatCurrency(termsOfPaymentBreakdown.upon_registration) }}</span>
                   </div>
                   
                   <div class="flex justify-between items-center py-3 px-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
                     <span class="text-sm font-semibold text-gray-700">Prelim</span>
-                    <span class="text-base font-bold text-gray-900">{{ formatCurrency(latestAssessment.prelim ?? (props.termsOfPayment?.prelim ?? 0)) }}</span>
+                    <span class="text-base font-bold text-gray-900">{{ formatCurrency(termsOfPaymentBreakdown.prelim) }}</span>
                   </div>
                   
                   <div class="flex justify-between items-center py-3 px-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
                     <span class="text-sm font-semibold text-gray-700">Midterm</span>
-                    <span class="text-base font-bold text-gray-900">{{ formatCurrency(latestAssessment.midterm ?? (props.termsOfPayment?.midterm ?? 0)) }}</span>
+                    <span class="text-base font-bold text-gray-900">{{ formatCurrency(termsOfPaymentBreakdown.midterm) }}</span>
                   </div>
                   
                   <div class="flex justify-between items-center py-3 px-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
                     <span class="text-sm font-semibold text-gray-700">Semi-Final</span>
-                    <span class="text-base font-bold text-gray-900">{{ formatCurrency(latestAssessment.semi_final ?? (props.termsOfPayment?.semi_final ?? 0)) }}</span>
+                    <span class="text-base font-bold text-gray-900">{{ formatCurrency(termsOfPaymentBreakdown.semi_final) }}</span>
                   </div>
                   
                   <div class="flex justify-between items-center py-3 px-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
                     <span class="text-sm font-semibold text-gray-700">Final</span>
-                    <span class="text-base font-bold text-gray-900">{{ formatCurrency(latestAssessment.final ?? (props.termsOfPayment?.final ?? 0)) }}</span>
+                    <span class="text-base font-bold text-gray-900">{{ formatCurrency(termsOfPaymentBreakdown.final) }}</span>
                   </div>
                 </div>
               </div>
             </div>
           </div>
           <!-- ============================================ -->
-          <!-- END CERTIFICATE OF MATRICULATION            -->
+          <!-- END CERTIFICATE OF MATRICULATION           -->
           <!-- ============================================ -->
 
           <!-- Payment History -->

@@ -169,7 +169,7 @@ const activeCount = computed(() => props.curricula.data.filter(c => c.is_active)
               <div>
                 <p class="text-sm font-medium text-gray-600">Total Curricula</p>
                 <p class="mt-2 text-3xl font-bold text-gray-900">
-                  {{ curricula.data.length }}
+                  {{ props.curricula.data.length }}
                 </p>
               </div>
               <div class="rounded-full bg-blue-100 p-3">
@@ -194,7 +194,7 @@ const activeCount = computed(() => props.curricula.data.filter(c => c.is_active)
             <div class="flex items-center justify-between">
               <div>
                 <p class="text-sm font-medium text-gray-600">Programs</p>
-                <p class="mt-2 text-3xl font-bold text-purple-600">{{ programs.length }}</p>
+                <p class="mt-2 text-3xl font-bold text-purple-600">{{ props.programs.length }}</p>
               </div>
               <div class="rounded-full bg-purple-100 p-3">
                 <GraduationCap class="h-6 w-6 text-purple-600" />
@@ -206,7 +206,7 @@ const activeCount = computed(() => props.curricula.data.filter(c => c.is_active)
             <div class="flex items-center justify-between">
               <div>
                 <p class="text-sm font-medium text-gray-600">School Years</p>
-                <p class="mt-2 text-3xl font-bold text-orange-600">{{ schoolYears.length }}</p>
+                <p class="mt-2 text-3xl font-bold text-orange-600">{{ props.schoolYears.length }}</p>
               </div>
               <div class="rounded-full bg-orange-100 p-3">
                 <BookOpen class="h-6 w-6 text-orange-600" />
@@ -233,10 +233,10 @@ const activeCount = computed(() => props.curricula.data.filter(c => c.is_active)
             <select
               v-model="selectedProgram"
               @change="applyFilters"
-              class="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              class="rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500"
             >
               <option value="">All Programs</option>
-              <option v-for="program in programs" :key="program.id" :value="program.id">
+              <option v-for="program in props.programs" :key="program.id" :value="program.id">
                 {{ program.code }}
               </option>
             </select>
@@ -245,10 +245,10 @@ const activeCount = computed(() => props.curricula.data.filter(c => c.is_active)
             <select
               v-model="selectedYearLevel"
               @change="applyFilters"
-              class="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              class="rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500"
             >
               <option value="">All Year Levels</option>
-              <option v-for="year in yearLevels" :key="year" :value="year">
+              <option v-for="year in props.yearLevels" :key="year" :value="year">
                 {{ year }}
               </option>
             </select>
@@ -257,10 +257,10 @@ const activeCount = computed(() => props.curricula.data.filter(c => c.is_active)
             <select
               v-model="selectedSemester"
               @change="applyFilters"
-              class="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              class="rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500"
             >
               <option value="">All Semesters</option>
-              <option v-for="sem in semesters" :key="sem" :value="sem">
+              <option v-for="sem in props.semesters" :key="sem" :value="sem">
                 {{ sem }}
               </option>
             </select>
@@ -302,7 +302,7 @@ const activeCount = computed(() => props.curricula.data.filter(c => c.is_active)
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-200 bg-white">
-                <tr v-if="curricula.data.length === 0">
+                <tr v-if="props.curricula.data.length === 0">
                   <td colspan="7" class="px-6 py-12 text-center">
                     <div class="flex flex-col items-center gap-2">
                       <BookOpen class="h-12 w-12 text-gray-300" />
@@ -313,7 +313,7 @@ const activeCount = computed(() => props.curricula.data.filter(c => c.is_active)
                     </div>
                   </td>
                 </tr>
-                <tr v-for="curriculum in curricula.data" :key="curriculum.id" class="hover:bg-gray-50">
+                <tr v-for="curriculum in props.curricula.data" :key="curriculum.id" class="hover:bg-gray-50">
                   <td class="whitespace-nowrap px-6 py-4">
                     <div class="text-sm">
                       <p class="font-medium text-gray-900">{{ curriculum.program.code }}</p>
@@ -385,20 +385,20 @@ const activeCount = computed(() => props.curricula.data.filter(c => c.is_active)
 
           <!-- Pagination -->
           <div 
-            v-if="curricula.last_page > 1" 
+            v-if="props.curricula.last_page > 1" 
             class="flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 sm:px-6"
           >
             <div class="flex flex-1 justify-between sm:hidden">
               <Link
-                v-if="curricula.current_page > 1"
-                :href="curricula.links[curricula.current_page - 1].url"
+                v-if="props.curricula.current_page > 1"
+                :href="props.curricula.links[0].url"
                 class="relative inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
               >
                 Previous
               </Link>
               <Link
-                v-if="curricula.current_page < curricula.last_page"
-                :href="curricula.links[curricula.current_page + 1].url"
+                v-if="props.curricula.current_page < props.curricula.last_page"
+                :href="props.curricula.links[props.curricula.links.length - 1].url"
                 class="relative ml-3 inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
               >
                 Next
@@ -407,13 +407,13 @@ const activeCount = computed(() => props.curricula.data.filter(c => c.is_active)
             <div class="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
               <div>
                 <p class="text-sm text-gray-700">
-                  Page <span class="font-medium">{{ curricula.current_page }}</span> of 
-                  <span class="font-medium">{{ curricula.last_page }}</span>
+                  Page <span class="font-medium">{{ props.curricula.current_page }}</span> of 
+                  <span class="font-medium">{{ props.curricula.last_page }}</span>
                 </p>
               </div>
               <div>
                 <nav class="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
-                  <template v-for="(link, index) in curricula.links" :key="index">
+                  <template v-for="(link, index) in props.curricula.links" :key="index">
                     <Link
                       v-if="link.url"
                       :href="link.url"
@@ -423,7 +423,7 @@ const activeCount = computed(() => props.curricula.data.filter(c => c.is_active)
                           ? 'z-10 bg-blue-600 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600'
                           : 'text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0',
                         index === 0 && 'rounded-l-md',
-                        index === curricula.links.length - 1 && 'rounded-r-md'
+                        index === props.curricula.links.length - 1 && 'rounded-r-md'
                       ]"
                       v-html="link.label"
                     />
@@ -433,7 +433,7 @@ const activeCount = computed(() => props.curricula.data.filter(c => c.is_active)
                         'relative inline-flex items-center px-4 py-2 text-sm font-medium text-gray-400',
                         'ring-1 ring-inset ring-gray-300 cursor-not-allowed',
                         index === 0 && 'rounded-l-md',
-                        index === curricula.links.length - 1 && 'rounded-r-md'
+                        index === props.curricula.links.length - 1 && 'rounded-r-md'
                       ]"
                       v-html="link.label"
                     />

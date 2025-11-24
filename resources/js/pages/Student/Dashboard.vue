@@ -1,15 +1,4 @@
 <script setup lang="ts">
-/**
- * Student Dashboard (IMPROVED)
- * Location: resources/js/pages/Student/Dashboard.vue
- * 
- * Key improvements:
- * - Uses reusable composables for formatting
- * - Uses reusable TransactionDetailsDialog component
- * - Better error handling and loading states
- * - Optimized computed properties
- * - Better TypeScript types
- */
 
 import { computed, ref } from 'vue'
 import { Head, Link, router } from '@inertiajs/vue3'

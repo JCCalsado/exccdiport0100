@@ -273,48 +273,77 @@ class StudentFeeController extends Controller
      * Show student fee details
      */
     public function show($userId)
-    {
-        $student = User::with(['student', 'account'])
-            ->where('role', 'student')
-            ->findOrFail($userId);
+{
+    // Load student + related models
+    $student = User::with(['student', 'account'])
+        ->where('role', 'student')
+        ->findOrFail($userId);
 
-        // Get latest assessment
-        $latestAssessment = StudentAssessment::where('user_id', $userId)
-            ->where('status', 'active')
-            ->latest()
-            ->first();
+    // Latest active assessment
+    $latestAssessment = StudentAssessment::where('user_id', $userId)
+        ->where('status', 'active')
+        ->latest()
+        ->first();
 
-        // Get all transactions
-        $transactions = Transaction::where('user_id', $userId)
-            ->with('fee')
-            ->orderBy('created_at', 'desc')
-            ->get();
+    // All transactions with fee relation
+    $transactions = Transaction::where('user_id', $userId)
+        ->with('fee')
+        ->orderBy('created_at', 'desc')
+        ->get();
 
-        // Get payments
-        $payments = Payment::where('student_id', $student->student->id ?? null)
-            ->orderBy('paid_at', 'desc')
-            ->get();
+    // Student payments
+    $payments = Payment::where('student_id', $student->student->id ?? null)
+        ->orderBy('paid_at', 'desc')
+        ->get();
 
-        // Calculate fee breakdown
-        $feeBreakdown = $transactions->where('kind', 'charge')
-            ->groupBy('type')
-            ->map(function ($group) {
-                return [
-                    'category' => $group->first()->type,
-                    'total' => $group->sum('amount'),
-                    'items' => $group->count(),
-                ];
-            });
+    // Fee breakdown
+    $feeBreakdown = $transactions->where('kind', 'charge')
+        ->groupBy('type')
+        ->map(function ($group) {
+            return [
+                'category' => $group->first()->type,
+                'total' => $group->sum('amount'),
+                'items' => $group->count(),
+            ];
+        });
 
-        return Inertia::render('StudentFees/Show', [
-            'student' => $student,
-            'student_model_id' => $student->student->id ?? null,
-            'assessment' => $latestAssessment,
-            'transactions' => $transactions,
-            'payments' => $payments,
-            'feeBreakdown' => $feeBreakdown->values(),
-        ]);
-    }
+    // === ✨ FIX: Add all required top-level props for AccountOverview.vue ===
+
+    $account = $student->account ?? null;
+
+    $assessmentLines = $latestAssessment->subjects ?? [];
+
+    $termsOfPayment = $latestAssessment->payment_terms ?? null;
+
+    $fees = $transactions->where('kind', 'charge')->map(function ($t) {
+        return [
+            'id' => $t->fee_id ?? null,
+            'name' => $t->meta['fee_name'] 
+                ?? ($t->fee->name ?? ($t->type ?? 'Fee')),
+            'amount' => $t->amount,
+            'category' => $t->type ?? 'Other',
+        ];
+    })->values();
+
+    $currentTerm = [
+        'year' => $latestAssessment->year ?? now()->year,
+        'semester' => $latestAssessment->semester ?? '1st Sem',
+    ];
+
+    return Inertia::render('StudentFees/Show', [
+        'student' => $student,
+        'student_model_id' => $student->student->id ?? null,
+        'account' => $account,
+        'assessment' => $latestAssessment,
+        'assessmentLines' => $assessmentLines,
+        'termsOfPayment' => $termsOfPayment,
+        'transactions' => $transactions,
+        'payments' => $payments,
+        'fees' => $fees,
+        'currentTerm' => $currentTerm,
+        'feeBreakdown' => $feeBreakdown->values(),
+    ]);
+}
 
     /**
      * Store payment for student

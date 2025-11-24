@@ -13,20 +13,24 @@ class StudentAccountController extends Controller
     {
         $user = Auth::user();
         
-        // Load account
+        // Ensure account exists
         if (!$user->account) {
             $user->account()->create(['balance' => 0]);
         }
-        
-        // Load transactions directly through user relationship (NOT account)
-        // This is the key fix - seeders use user_id, not account_id
+
+        // Load transactions (via user, not account)
         $user->load(['transactions' => function ($query) {
             $query->orderBy('created_at', 'desc');
         }]);
 
-        // Get current term
+        $student = $user;
+        $account = $user->account;
+        $transactions = $user->transactions;
+
+        // Determine current term
         $year = now()->year;
         $month = now()->month;
+
         if ($month >= 6 && $month <= 10) {
             $semester = '1st Sem';
         } elseif ($month >= 11 || $month <= 3) {
@@ -35,7 +39,12 @@ class StudentAccountController extends Controller
             $semester = 'Summer';
         }
 
-        // Get fees for current term and student's year level
+        $currentTerm = [
+            'year' => $year,
+            'semester' => $semester,
+        ];
+
+        // Load Fee List
         $fees = Fee::active()
             ->where('year_level', $user->year_level)
             ->where('semester', $semester)
@@ -43,7 +52,6 @@ class StudentAccountController extends Controller
             ->select('name', 'amount', 'category')
             ->get();
 
-        // If no fees found, use fallback
         if ($fees->isEmpty()) {
             $fees = collect([
                 ['name' => 'Registration Fee', 'amount' => 200.0, 'category' => 'Miscellaneous'],
@@ -54,10 +62,37 @@ class StudentAccountController extends Controller
             ]);
         }
 
+        // ----- STATS -----
+        $total_fees = $fees->sum('amount');
+
+        $total_paid = $transactions
+            ->where('kind', 'payment')
+            ->where('status', 'paid')
+            ->sum('amount');
+
+        $remaining_balance = max(0, $total_fees - $total_paid);
+
+        $pending_charges_count = $transactions
+            ->where('kind', 'charge')
+            ->where('status', 'pending')
+            ->count();
+
         return Inertia::render('Student/AccountOverview', [
-            'account'      => $user->account,
-            'transactions' => $user->transactions ?? [], // Use user->transactions, not account->transactions
-            'fees'         => $fees->values(),
+            'student' => $student,
+            'account' => $account,
+            'assessment' => null,
+            'assessmentLines' => [],
+            'termsOfPayment' => null,
+            'transactions' => $transactions,
+            'fees' => $fees,
+            'currentTerm' => $currentTerm,
+            'tab' => request('tab'),
+            'stats' => [
+                'total_fees' => $total_fees,
+                'total_paid' => $total_paid,
+                'remaining_balance' => $remaining_balance,
+                'pending_charges_count' => $pending_charges_count,
+            ],
         ]);
     }
 }
