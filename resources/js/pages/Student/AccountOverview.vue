@@ -689,10 +689,6 @@ const downloadPDF = () => {
               <Button variant="outline" @click="downloadPDF">
                 Download Assessment Form
               </Button>
-              <Button v-if="remainingBalance > 0" @click="activeTab = 'payment'" class="bg-blue-600 hover:bg-blue-700">
-                <CreditCard class="w-4 h-4 mr-2" />
-                Make Payment
-              </Button>
             </div>
           </div>
 
