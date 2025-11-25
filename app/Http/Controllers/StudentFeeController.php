@@ -91,8 +91,10 @@ class StudentFeeController extends Controller
      */
     public function create(Request $request)
     {
-        // If this is an AJAX request for getting student data
         if ($request->has('get_data') && $request->has('student_id')) {
+            $request->validate([
+                'student_id' => 'required|exists:users,id',
+            ]);
             $student = User::where('role', 'student')->findOrFail($request->student_id);
             
             // Get subjects for this student
@@ -959,13 +961,11 @@ class StudentFeeController extends Controller
     {
         $year = now()->year;
         
-        // Use database transaction to prevent race conditions
         return DB::transaction(function () use ($year) {
-            // Lock the table to prevent concurrent ID generation
-            $lastStudent = User::where('student_id', 'like', "{$year}-%")
-                ->lockForUpdate()
-                ->orderByRaw('CAST(SUBSTRING(student_id, 6) AS UNSIGNED) DESC')
-                ->first();
+        $lastStudent = User::where('student_id', 'like', "{$year}-%")
+            ->lockForUpdate() // ✅ This line is already there, good!
+            ->orderByRaw('CAST(SUBSTRING(student_id, 6) AS UNSIGNED) DESC')
+            ->first();
 
             if ($lastStudent) {
                 // Extract the number part and increment

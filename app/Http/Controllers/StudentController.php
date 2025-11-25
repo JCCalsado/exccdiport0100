@@ -33,16 +33,7 @@ class StudentController extends Controller
         $students = $query->orderBy('created_at', 'desc')->paginate(10);
 
         // Try to load fees from DB, otherwise fallback defaults
-        if (class_exists(Fee::class) && Fee::count() > 0) {
-            $fees = Fee::select('name', 'amount')->get();
-        } else {
-            $fees = collect([
-                ['name' => 'Registration Fee', 'amount' => 0.0],
-                ['name' => 'Tuition Fee', 'amount' => 1092.0],
-                ['name' => 'Lab Fee', 'amount' => 2256.0],
-                ['name' => 'Misc. Fee', 'amount' => 4700.0],
-            ]);
-        }
+        $fees = Fee::active()->select('name', 'amount')->get();
 
         return Inertia::render('Students/Index', [
             'students' => $students,
