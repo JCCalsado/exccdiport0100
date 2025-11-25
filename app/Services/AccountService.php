@@ -11,7 +11,6 @@ class AccountService
      */
     public static function recalculate(?User $user): void
     {
-        // If no user is provided, safely exit (prevents seeding crashes)
         if (!$user) {
             return;
         }
@@ -31,9 +30,9 @@ class AccountService
         $account = $user->account ?? $user->account()->create(['balance' => 0]);
         $account->update(['balance' => $balance]);
 
-        // Update student if available
+        // Update student if available - ADD NULL CHECK
         if ($user->student) {
-            $user->student->update(['total_balance' => $balance]);
+            $user->student->update(['total_balance' => abs($balance)]);
 
             // Auto-promote when balance is cleared
             if ($balance <= 0) {

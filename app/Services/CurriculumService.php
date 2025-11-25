@@ -29,6 +29,10 @@ class CurriculumService
      */
     public function generateAssessment(User $student, Curriculum $curriculum): StudentAssessment
     {
+        if ($curriculum->courses->isEmpty()) {
+            throw new \Exception('Cannot generate assessment: Curriculum has no courses');
+        }
+        
         DB::beginTransaction();
         try {
             // Calculate fees

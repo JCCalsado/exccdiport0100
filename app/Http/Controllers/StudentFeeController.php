@@ -448,6 +448,122 @@ class StudentFeeController extends Controller
     }
 
     /**
+     * Update the specified student assessment
+     */
+    public function update(Request $request, $userId)
+    {
+        $validated = $request->validate([
+            'year_level' => 'required|string',
+            'semester' => 'required|string',
+            'school_year' => 'required|string',
+            'subjects' => 'required|array|min:1',
+            'subjects.*.id' => 'required|exists:subjects,id',
+            'subjects.*.units' => 'required|numeric|min:0',
+            'subjects.*.amount' => 'required|numeric|min:0',
+            'other_fees' => 'nullable|array',
+            'other_fees.*.id' => 'required|exists:fees,id',
+            'other_fees.*.amount' => 'required|numeric|min:0',
+        ]);
+
+        $student = User::where('role', 'student')->findOrFail($userId);
+
+        DB::beginTransaction();
+        try {
+            // Get the latest active assessment
+            $assessment = StudentAssessment::where('user_id', $userId)
+                ->where('status', 'active')
+                ->latest()
+                ->firstOrFail();
+
+            // Calculate new fees
+            $tuitionFee = collect($validated['subjects'])->sum('amount');
+            $otherFeesTotal = isset($validated['other_fees']) 
+                ? collect($validated['other_fees'])->sum('amount') 
+                : 0;
+
+            // Update assessment
+            $assessment->update([
+                'year_level' => $validated['year_level'],
+                'semester' => $validated['semester'],
+                'school_year' => $validated['school_year'],
+                'tuition_fee' => $tuitionFee,
+                'other_fees' => $otherFeesTotal,
+                'total_assessment' => $tuitionFee + $otherFeesTotal,
+                'subjects' => $validated['subjects'],
+                'fee_breakdown' => $validated['other_fees'] ?? [],
+            ]);
+
+            // Delete old transactions for this assessment
+            Transaction::where('user_id', $userId)
+                ->where('meta->assessment_id', $assessment->id)
+                ->delete();
+
+            // Create new transactions for subjects
+            foreach ($validated['subjects'] as $subject) {
+                Transaction::create([
+                    'user_id' => $userId,
+                    'reference' => 'SUBJ-' . strtoupper(Str::random(8)),
+                    'kind' => 'charge',
+                    'type' => 'Tuition',
+                    'year' => explode('-', $validated['school_year'])[0],
+                    'semester' => $validated['semester'],
+                    'amount' => $subject['amount'],
+                    'status' => 'pending',
+                    'meta' => [
+                        'assessment_id' => $assessment->id,
+                        'subject_id' => $subject['id'],
+                        'description' => 'Tuition Fee - Subject',
+                    ],
+                ]);
+            }
+
+            // Create new transactions for other fees
+            if (isset($validated['other_fees'])) {
+                foreach ($validated['other_fees'] as $fee) {
+                    $feeModel = Fee::find($fee['id']);
+                    Transaction::create([
+                        'user_id' => $userId,
+                        'fee_id' => $fee['id'],
+                        'reference' => 'FEE-' . strtoupper(Str::random(8)),
+                        'kind' => 'charge',
+                        'type' => $feeModel->category,
+                        'year' => explode('-', $validated['school_year'])[0],
+                        'semester' => $validated['semester'],
+                        'amount' => $fee['amount'],
+                        'status' => 'pending',
+                        'meta' => [
+                            'assessment_id' => $assessment->id,
+                            'fee_code' => $feeModel->code,
+                            'fee_name' => $feeModel->name,
+                        ],
+                    ]);
+                }
+            }
+
+            // Recalculate student balance
+            \App\Services\AccountService::recalculate($student);
+
+            DB::commit();
+
+            return redirect()
+                ->route('student-fees.show', $userId)
+                ->with('success', 'Student assessment updated successfully!');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Assessment update failed', [
+                'user_id' => $userId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            
+            return back()->withErrors([
+                'error' => 'Failed to update assessment: ' . $e->getMessage()
+            ])->withInput();
+        }
+    }
+
+    /**
      * Export assessment to PDF
      */
     public function exportPdf($userId)

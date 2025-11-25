@@ -18,8 +18,14 @@ class RoleMiddleware
     {
         $user = Auth::user();
 
-        if (!$user || !in_array($user->role->value, $roles)) {
-            // Abort or redirect if user doesn't have the required role
+        if (!$user) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        // Handle both enum and string roles
+        $userRole = is_object($user->role) ? $user->role->value : $user->role;
+
+        if (!in_array($userRole, $roles)) {
             abort(403, 'Unauthorized action.');
         }
 

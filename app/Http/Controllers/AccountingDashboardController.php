@@ -51,7 +51,7 @@ class AccountingDashboardController extends Controller
             ->whereHas('account', function ($q) {
                 $q->where('balance', '>', 0);
             })
-            ->with('account')
+            ->with(['account', 'student'])
             ->orderBy('created_at', 'desc')
             ->limit(10)
             ->get()
