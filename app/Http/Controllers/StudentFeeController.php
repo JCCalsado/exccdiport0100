@@ -273,77 +273,204 @@ class StudentFeeController extends Controller
      * Show student fee details
      */
     public function show($userId)
-{
-    // Load student + related models
-    $student = User::with(['student', 'account'])
-        ->where('role', 'student')
-        ->findOrFail($userId);
+    {
+        // Load student + related models
+        $student = User::with(['student', 'account'])
+            ->where('role', 'student')
+            ->findOrFail($userId);
 
-    // Latest active assessment
-    $latestAssessment = StudentAssessment::where('user_id', $userId)
-        ->where('status', 'active')
-        ->latest()
-        ->first();
+        // Latest active assessment
+        $latestAssessment = StudentAssessment::where('user_id', $userId)
+            ->where('status', 'active')
+            ->latest()
+            ->first();
 
-    // All transactions with fee relation
-    $transactions = Transaction::where('user_id', $userId)
-        ->with('fee')
-        ->orderBy('created_at', 'desc')
-        ->get();
+        // All transactions with fee relation
+        $transactions = Transaction::where('user_id', $userId)
+            ->with('fee')
+            ->orderBy('created_at', 'desc')
+            ->get();
 
-    // Student payments
-    $payments = Payment::where('student_id', $student->student->id ?? null)
-        ->orderBy('paid_at', 'desc')
-        ->get();
+        // Student payments
+        $payments = Payment::where('student_id', $student->student->id ?? null)
+            ->orderBy('paid_at', 'desc')
+            ->get();
 
-    // Fee breakdown
-    $feeBreakdown = $transactions->where('kind', 'charge')
-        ->groupBy('type')
-        ->map(function ($group) {
-            return [
-                'category' => $group->first()->type,
-                'total' => $group->sum('amount'),
-                'items' => $group->count(),
+        // ============================================
+        // BUILD PROPER DATA STRUCTURE FOR FRONTEND
+        // ============================================
+
+        $account = $student->account ?? null;
+
+        // Build subjects array from assessment or transactions
+        $assessmentLines = [];
+        if ($latestAssessment && !empty($latestAssessment->subjects)) {
+            // Use assessment subjects if available
+            $assessmentLines = collect($latestAssessment->subjects)->map(function ($subject) {
+                return [
+                    'subject_code' => $subject['code'] ?? $subject['subject_code'] ?? 'N/A',
+                    'code' => $subject['code'] ?? $subject['subject_code'] ?? 'N/A',
+                    'description' => $subject['title'] ?? $subject['description'] ?? $subject['name'] ?? 'N/A',
+                    'title' => $subject['title'] ?? $subject['description'] ?? $subject['name'] ?? 'N/A',
+                    'name' => $subject['title'] ?? $subject['description'] ?? $subject['name'] ?? 'N/A',
+                    'units' => $subject['total_units'] ?? $subject['units'] ?? 0,
+                    'total_units' => $subject['total_units'] ?? $subject['units'] ?? 0,
+                    'lec_units' => $subject['lec_units'] ?? 0,
+                    'lab_units' => $subject['lab_units'] ?? 0,
+                    'tuition' => $subject['tuition'] ?? 0,
+                    'lab_fee' => $subject['lab_fee'] ?? 0,
+                    'misc_fee' => $subject['misc_fee'] ?? 0,
+                    'total' => $subject['total'] ?? ($subject['tuition'] ?? 0) + ($subject['lab_fee'] ?? 0),
+                    'semester' => $latestAssessment->semester ?? 'N/A',
+                    'time' => $subject['time'] ?? 'TBA',
+                    'day' => $subject['day'] ?? 'TBA',
+                ];
+            })->toArray();
+        } else {
+            // Fallback: Build from transactions if assessment is empty
+            $tuitionTransactions = $transactions->where('type', 'Tuition');
+            foreach ($tuitionTransactions as $txn) {
+                $meta = $txn->meta ?? [];
+                $assessmentLines[] = [
+                    'subject_code' => $meta['subject_code'] ?? $meta['course_code'] ?? 'N/A',
+                    'code' => $meta['subject_code'] ?? $meta['course_code'] ?? 'N/A',
+                    'description' => $meta['subject_name'] ?? $meta['course_title'] ?? $txn->type ?? 'N/A',
+                    'title' => $meta['subject_name'] ?? $meta['course_title'] ?? $txn->type ?? 'N/A',
+                    'name' => $meta['subject_name'] ?? $meta['course_title'] ?? $txn->type ?? 'N/A',
+                    'units' => $meta['units'] ?? 3,
+                    'total_units' => $meta['units'] ?? 3,
+                    'lec_units' => 0,
+                    'lab_units' => 0,
+                    'tuition' => $txn->amount,
+                    'lab_fee' => 0,
+                    'misc_fee' => 0,
+                    'total' => $txn->amount,
+                    'semester' => $txn->semester ?? 'N/A',
+                    'time' => 'TBA',
+                    'day' => 'TBA',
+                ];
+            }
+        }
+
+        // Build fee breakdown from transactions
+        $feeBreakdownData = [];
+        
+        // Registration Fee
+        $registrationFee = $transactions->where('type', 'Registration')->sum('amount');
+        if ($registrationFee > 0 || $latestAssessment?->registration_fee > 0) {
+            $feeBreakdownData['registration'] = $latestAssessment?->registration_fee ?? $registrationFee;
+        }
+
+        // Tuition Fee
+        $tuitionFee = $transactions->where('type', 'Tuition')->sum('amount');
+        if ($tuitionFee > 0 || $latestAssessment?->tuition_fee > 0) {
+            $feeBreakdownData['tuition'] = $latestAssessment?->tuition_fee ?? $tuitionFee;
+        }
+
+        // Laboratory Fee
+        $labFee = $transactions->whereIn('type', ['Laboratory', 'Lab Fee', 'Lab'])->sum('amount');
+        if ($labFee > 0 || $latestAssessment?->lab_fee > 0) {
+            $feeBreakdownData['lab'] = $latestAssessment?->lab_fee ?? $labFee;
+        }
+
+        // Miscellaneous Fee
+        $miscFee = $transactions->whereIn('type', ['Miscellaneous', 'Misc Fee', 'Misc'])->sum('amount');
+        if ($miscFee > 0 || $latestAssessment?->misc_fee > 0) {
+            $feeBreakdownData['misc'] = $latestAssessment?->misc_fee ?? $miscFee;
+        }
+
+        // Other Fees (Library, Athletic, etc.)
+        $otherFees = $transactions->whereNotIn('type', ['Registration', 'Tuition', 'Laboratory', 'Lab Fee', 'Lab', 'Miscellaneous', 'Misc Fee', 'Misc', 'Payment'])->sum('amount');
+        if ($otherFees > 0 || $latestAssessment?->other_fees > 0) {
+            $feeBreakdownData['other'] = $latestAssessment?->other_fees ?? $otherFees;
+        }
+
+        // Build termsOfPayment from assessment or calculate default
+        $termsOfPayment = null;
+        if ($latestAssessment && !empty($latestAssessment->payment_terms)) {
+            $termsOfPayment = $latestAssessment->payment_terms;
+        } else if ($latestAssessment) {
+            // Generate default payment terms (5 equal installments)
+            $total = $latestAssessment->total_assessment ?? 0;
+            $perTerm = round($total / 5, 2);
+            $termsOfPayment = [
+                'upon_registration' => $perTerm,
+                'prelim' => $perTerm,
+                'midterm' => $perTerm,
+                'semi_final' => $perTerm,
+                'final' => $total - ($perTerm * 4), // Remainder goes to final
             ];
-        });
+        }
 
-    // === ✨ FIX: Add all required top-level props for AccountOverview.vue ===
+        // Build fees list for "Fees & Assessment" tab
+        $fees = $transactions->where('kind', 'charge')->map(function ($t) {
+            return [
+                'id' => $t->fee_id ?? $t->id,
+                'name' => $t->meta['fee_name'] ?? $t->fee?->name ?? $t->type ?? 'Fee',
+                'amount' => $t->amount,
+                'category' => $t->type ?? 'Other',
+            ];
+        })->values();
 
-    $account = $student->account ?? null;
+        // If fees are empty, add defaults from feeBreakdownData
+        if ($fees->isEmpty()) {
+            $defaultFees = [];
+            if (isset($feeBreakdownData['registration'])) {
+                $defaultFees[] = ['name' => 'Registration Fee', 'amount' => $feeBreakdownData['registration'], 'category' => 'Registration'];
+            }
+            if (isset($feeBreakdownData['tuition'])) {
+                $defaultFees[] = ['name' => 'Tuition Fee', 'amount' => $feeBreakdownData['tuition'], 'category' => 'Tuition'];
+            }
+            if (isset($feeBreakdownData['lab'])) {
+                $defaultFees[] = ['name' => 'Laboratory Fee', 'amount' => $feeBreakdownData['lab'], 'category' => 'Laboratory'];
+            }
+            if (isset($feeBreakdownData['misc'])) {
+                $defaultFees[] = ['name' => 'Miscellaneous Fee', 'amount' => $feeBreakdownData['misc'], 'category' => 'Miscellaneous'];
+            }
+            $fees = collect($defaultFees);
+        }
 
-    $assessmentLines = $latestAssessment->subjects ?? [];
-
-    $termsOfPayment = $latestAssessment->payment_terms ?? null;
-
-    $fees = $transactions->where('kind', 'charge')->map(function ($t) {
-        return [
-            'id' => $t->fee_id ?? null,
-            'name' => $t->meta['fee_name'] 
-                ?? ($t->fee->name ?? ($t->type ?? 'Fee')),
-            'amount' => $t->amount,
-            'category' => $t->type ?? 'Other',
+        $currentTerm = [
+            'year' => $latestAssessment?->year ?? now()->year,
+            'semester' => $latestAssessment?->semester ?? '1st Sem',
         ];
-    })->values();
 
-    $currentTerm = [
-        'year' => $latestAssessment->year ?? now()->year,
-        'semester' => $latestAssessment->semester ?? '1st Sem',
-    ];
+        // Build enhanced assessment object with all fee breakdowns
+        $enhancedAssessment = $latestAssessment ? $latestAssessment->toArray() : [];
+        $enhancedAssessment['registration_fee'] = $feeBreakdownData['registration'] ?? 0;
+        $enhancedAssessment['tuition_fee'] = $feeBreakdownData['tuition'] ?? 0;
+        $enhancedAssessment['lab_fee'] = $feeBreakdownData['lab'] ?? 0;
+        $enhancedAssessment['misc_fee'] = $feeBreakdownData['misc'] ?? 0;
+        $enhancedAssessment['other_fees'] = $feeBreakdownData['other'] ?? 0;
+        
+        // Ensure subjects array is set
+        if (empty($enhancedAssessment['subjects']) && !empty($assessmentLines)) {
+            $enhancedAssessment['subjects'] = $assessmentLines;
+        }
 
-    return Inertia::render('StudentFees/Show', [
-        'student' => $student,
-        'student_model_id' => $student->student->id ?? null,
-        'account' => $account,
-        'assessment' => $latestAssessment,
-        'assessmentLines' => $assessmentLines,
-        'termsOfPayment' => $termsOfPayment,
-        'transactions' => $transactions,
-        'payments' => $payments,
-        'fees' => $fees,
-        'currentTerm' => $currentTerm,
-        'feeBreakdown' => $feeBreakdown->values(),
-    ]);
-}
+        // Calculate total units from subjects
+        $totalUnits = collect($assessmentLines)->sum('units');
+        $enhancedAssessment['total_units'] = $totalUnits;
+
+        return Inertia::render('Student/AccountOverview', [
+            'student' => $student,
+            'student_model_id' => $student->student->id ?? null,
+            'account' => $account,
+            'assessment' => $enhancedAssessment,
+            'assessmentLines' => $assessmentLines,
+            'termsOfPayment' => $termsOfPayment,
+            'transactions' => $transactions,
+            'payments' => $payments,
+            'fees' => $fees,
+            'currentTerm' => $currentTerm,
+            'stats' => [
+                'total_fees' => array_sum($feeBreakdownData),
+                'total_paid' => $payments->sum('amount'),
+                'remaining_balance' => max(0, array_sum($feeBreakdownData) - $payments->sum('amount')),
+                'pending_charges_count' => $transactions->where('kind', 'charge')->where('status', 'pending')->count(),
+            ],
+        ]);
+    }
 
     /**
      * Store payment for student
