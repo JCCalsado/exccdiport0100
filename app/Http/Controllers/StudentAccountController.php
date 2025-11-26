@@ -6,6 +6,7 @@ use Inertia\Inertia;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Services\AssessmentDataService;
+use App\Models\Payment;
 
 class StudentAccountController extends Controller
 {
