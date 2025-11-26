@@ -14,9 +14,21 @@ class Student extends Model
         return $this->belongsTo(User::class);
     }
     
+    // ✅ FIX: Added 'user_id' to fillable array
     protected $fillable = [
-        'student_id', 'last_name', 'first_name', 'middle_initial', 'email', 'course', 'year_level',
-        'birthday', 'phone', 'address', 'total_balance'
+        'user_id',  // ← THIS WAS MISSING!
+        'student_id', 
+        'last_name', 
+        'first_name', 
+        'middle_initial', 
+        'email', 
+        'course', 
+        'year_level',
+        'birthday', 
+        'phone', 
+        'address', 
+        'total_balance',
+        'status',
     ];
 
     protected $casts = [
@@ -29,10 +41,9 @@ class Student extends Model
         return $this->hasMany(Payment::class);
     }
 
-    // NEW: transactions via the linked user (transactions.user_id == students.user_id)
+    // transactions via the linked user (transactions.user_id == students.user_id)
     public function transactions(): HasMany
     {
-        // transactions.user_id = students.user_id
         return $this->hasMany(Transaction::class, 'user_id', 'user_id');
     }
 

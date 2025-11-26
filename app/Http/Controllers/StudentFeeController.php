@@ -287,8 +287,8 @@ class StudentFeeController extends Controller
             ->where('role', 'student')
             ->findOrFail($userId);
 
-        // Use standardized data service
-        $data = \App\Services\AssessmentDataService::getStandardizedData($student);
+        // ✅ FIX: Use correct method name
+        $data = \App\Services\AssessmentDataService::getUnifiedAssessmentData($student);
 
         return Inertia::render('StudentFees/Show', $data);
     }
@@ -661,27 +661,123 @@ class StudentFeeController extends Controller
     /**
      * Store new student with OBE curriculum support
      */
-    public function storeStudent(StoreStudentRequest $request)
+    public function storeStudent(Request $request)
     {
+        $validated = $request->validate([
+            'last_name' => 'required|string|max:255',
+            'first_name' => 'required|string|max:255',
+            'middle_initial' => 'nullable|string|max:10',
+            'email' => 'required|email|unique:users,email',
+            'birthday' => 'required|date',
+            'phone' => 'required|string|max:20',
+            'address' => 'required|string|max:255',
+            'year_level' => 'required|string',
+            'student_id' => 'nullable|string|unique:users,student_id',
+            
+            // OBE fields
+            'program_id' => 'nullable|exists:programs,id',
+            'semester' => 'nullable|string',
+            'school_year' => 'nullable|string',
+            
+            // Legacy field
+            'course' => 'nullable|string',
+            
+            // Auto-generate assessment flag
+            'auto_generate_assessment' => 'boolean',
+        ]);
+
+        DB::beginTransaction();
         try {
-            $user = $this->studentCreationService->createStudent($request->validated());
+            // Auto-generate ID if empty
+            $studentId = $validated['student_id'] ?: $this->generateUniqueStudentId();
+
+            // Determine course name
+            if ($validated['program_id']) {
+                $program = Program::find($validated['program_id']);
+                $courseName = $program->full_name;
+            } else {
+                $courseName = $validated['course'];
+            }
+
+            // ✅ STEP 1: Create user record FIRST
+            $user = User::create([
+                'last_name' => $validated['last_name'],
+                'first_name' => $validated['first_name'],
+                'middle_initial' => $validated['middle_initial'],
+                'email' => $validated['email'],
+                'birthday' => $validated['birthday'],
+                'phone' => $validated['phone'],
+                'address' => $validated['address'],
+                'year_level' => $validated['year_level'],
+                'course' => $courseName,
+                'student_id' => $studentId,
+                'role' => 'student',
+                'status' => User::STATUS_ACTIVE,
+                'password' => Hash::make('password'),
+            ]);
+
+            // ✅ VERIFY: Ensure user has an ID before proceeding
+            if (!$user->id) {
+                throw new \Exception('Failed to create user record - no ID generated');
+            }
+
+            // ✅ STEP 2: Create Student model entry with verified user_id
+            $student = \App\Models\Student::create([
+                'user_id' => $user->id,  // ← This will now work because user_id is in $fillable
+                'student_id' => $studentId,
+                'last_name' => $validated['last_name'],
+                'first_name' => $validated['first_name'],
+                'middle_initial' => $validated['middle_initial'],
+                'email' => $validated['email'],
+                'course' => $courseName,
+                'year_level' => $validated['year_level'],
+                'status' => 'enrolled',
+                'birthday' => $validated['birthday'],
+                'phone' => $validated['phone'],
+                'address' => $validated['address'],
+                'total_balance' => 0,
+            ]);
+
+            // ✅ VERIFY: Ensure student record was created with user_id
+            if (!$student->user_id) {
+                throw new \Exception('Student record created but user_id was not set');
+            }
+
+            // ✅ STEP 3: Create account
+            $user->account()->create(['balance' => 0]);
+
+            // ✅ STEP 4: Auto-generate OBE assessment if requested
+            if ($request->boolean('auto_generate_assessment') && $validated['program_id']) {
+                $curriculum = $this->curriculumService->getCurriculumForTerm(
+                    $validated['program_id'],
+                    $validated['year_level'],
+                    $validated['semester'] ?? '1st Sem',
+                    $validated['school_year'] ?? '2025-2026'
+                );
+
+                if ($curriculum) {
+                    $this->curriculumService->generateAssessment($user, $curriculum);
+                }
+            }
+
+            DB::commit();
 
             return redirect()
                 ->route('student-fees.show', $user->id)
-                ->with('success', 'Student created successfully! ' . 
-                    ($request->boolean('auto_generate_assessment') 
-                        ? 'Assessment has been generated from OBE curriculum.' 
-                        : 'You can now create an assessment.'));
+                ->with('success', 'Student created successfully!');
 
         } catch (\Exception $e) {
+            DB::rollBack();
+            
             \Log::error('Student creation failed', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
+                'validated_data' => $validated,
             ]);
             
-            return back()
-                ->withErrors(['error' => 'Failed to create student: ' . $e->getMessage()])
-                ->withInput();
+            return back()->withErrors([
+                'error' => 'Failed to create student: ' . $e->getMessage(),
+            ])->withInput();
         }
     }
 
