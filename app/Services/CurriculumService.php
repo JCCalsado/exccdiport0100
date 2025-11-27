@@ -7,9 +7,11 @@ use App\Models\Program;
 use App\Models\User;
 use App\Models\StudentAssessment;
 use App\Models\StudentCurriculum;
+use App\Models\StudentPaymentTerm;
 use App\Models\Transaction;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Carbon\Carbon;
 
 class CurriculumService
 {
@@ -25,7 +27,7 @@ class CurriculumService
     }
 
     /**
-     * Generate assessment for a student based on curriculum
+     * Generate assessment with PAYMENT TERMS (not immediate charges)
      */
     public function generateAssessment(User $student, Curriculum $curriculum): StudentAssessment
     {
@@ -99,67 +101,15 @@ class CurriculumService
                 'enrolled_at' => now(),
             ]);
 
-            // Create transaction for registration fee
-            Transaction::create([
-                'user_id' => $student->id,
-                'reference' => 'REG-' . strtoupper(Str::random(8)),
-                'kind' => 'charge',
-                'type' => 'Registration',
-                'year' => explode('-', $curriculum->school_year)[0],
-                'semester' => $curriculum->semester,
-                'amount' => $registrationFee,
-                'status' => 'pending',
-                'meta' => [
-                    'assessment_id' => $assessment->id,
-                    'description' => 'Registration Fee',
-                    'term' => 'Upon Registration',
-                ],
-            ]);
+            // ✅ CREATE PAYMENT TERMS (NOT TRANSACTIONS)
+            $this->generatePaymentTermsForStudent($student, $curriculum, $paymentTerms);
 
-            // Create transactions for each subject
-            foreach ($subjects as $subject) {
-                Transaction::create([
-                    'user_id' => $student->id,
-                    'reference' => 'SUBJ-' . strtoupper(Str::random(8)),
-                    'kind' => 'charge',
-                    'type' => 'Tuition',
-                    'year' => explode('-', $curriculum->school_year)[0],
-                    'semester' => $curriculum->semester,
-                    'amount' => $subject['total'],
-                    'status' => 'pending',
-                    'meta' => [
-                        'assessment_id' => $assessment->id,
-                        'course_code' => $subject['code'],
-                        'course_title' => $subject['title'],
-                        'units' => $subject['total_units'],
-                        'has_lab' => $subject['has_lab'],
-                    ],
-                ]);
-            }
+            // ✅ NO TRANSACTION CREATION HERE
+            // Transactions are only created when actual payments are recorded
 
-            // Create transactions for other fees
-            foreach ($feeBreakdown as $fee) {
-                if ($fee['amount'] > 0 && $fee['name'] !== 'Registration Fee') {
-                    Transaction::create([
-                        'user_id' => $student->id,
-                        'reference' => 'FEE-' . strtoupper(Str::random(8)),
-                        'kind' => 'charge',
-                        'type' => $fee['name'],
-                        'year' => explode('-', $curriculum->school_year)[0],
-                        'semester' => $curriculum->semester,
-                        'amount' => $fee['amount'],
-                        'status' => 'pending',
-                        'meta' => [
-                            'assessment_id' => $assessment->id,
-                            'description' => $fee['name'],
-                        ],
-                    ]);
-                }
-            }
-
-            // Recalculate student balance
-            AccountService::recalculate($student);
-
+            // Account balance should remain 0 until terms are converted to charges
+            // This happens when payment deadlines pass or admin manually posts charges
+            
             DB::commit();
             return $assessment;
 
@@ -167,6 +117,63 @@ class CurriculumService
             DB::rollBack();
             throw $e;
         }
+    }
+
+    /**
+     * Generate payment terms for a student based on curriculum
+     */
+    protected function generatePaymentTermsForStudent(User $student, Curriculum $curriculum, array $paymentTerms): void
+    {
+        $termNames = [
+            'upon_registration' => 'Upon Registration',
+            'prelim' => 'Prelim',
+            'midterm' => 'Midterm',
+            'semi_final' => 'Semi-Final',
+            'final' => 'Final',
+        ];
+
+        $order = 1;
+        $startDate = Carbon::parse($curriculum->school_year . '-08-01'); // August 1st
+
+        foreach ($termNames as $key => $name) {
+            if (isset($paymentTerms[$key]) && $paymentTerms[$key] > 0) {
+                StudentPaymentTerm::create([
+                    'user_id' => $student->id,
+                    'curriculum_id' => $curriculum->id,
+                    'school_year' => $curriculum->school_year,
+                    'semester' => $curriculum->semester,
+                    'term_name' => $name,
+                    'term_order' => $order,
+                    'amount' => $paymentTerms[$key],
+                    'due_date' => $this->calculateDueDate($startDate, $order),
+                    'status' => 'pending',
+                    'paid_amount' => 0,
+                ]);
+                $order++;
+            }
+        }
+    }
+
+    /**
+     * Calculate due dates for payment terms
+     */
+    protected function calculateDueDate(Carbon $startDate, int $order): Carbon
+    {
+        // Registration: Start of semester
+        // Prelim: +6 weeks
+        // Midterm: +12 weeks
+        // Semi-Final: +15 weeks
+        // Final: +18 weeks
+        
+        $weeksMap = [
+            1 => 0,  // Registration
+            2 => 6,  // Prelim
+            3 => 12, // Midterm
+            4 => 15, // Semi-Final
+            5 => 18, // Final
+        ];
+
+        return $startDate->copy()->addWeeks($weeksMap[$order] ?? 0);
     }
 
     /**

@@ -21,11 +21,28 @@ import {
   ArrowRight,
 } from 'lucide-vue-next'
 
+interface PaymentTerm {
+  id: number
+  term_name: string
+  amount: number
+  paid_amount: number
+  remaining_balance: number
+  due_date: string | null
+  status: 'pending' | 'paid' | 'partial'
+  is_overdue: boolean
+}
+
 interface Props {
   account: Account
+  paymentTerms: PaymentTerm[]
   notifications: Notification[]
   recentTransactions: Transaction[]
-  stats: TransactionStats
+  stats: {
+    total_scheduled: number
+    total_paid: number
+    remaining_due: number
+    upcoming_due_count: number
+  }
 }
 
 const props = defineProps<Props>()

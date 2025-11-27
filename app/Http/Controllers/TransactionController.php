@@ -9,6 +9,8 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
+use App\Models\StudentPaymentTerm;
 
 class TransactionController extends Controller
 {
@@ -110,39 +112,86 @@ class TransactionController extends Controller
         $user = $request->user();
 
         $data = $request->validate([
-            'amount'           => 'required|numeric|min:0.01',
-            'payment_method'   => 'required|string',
+            'amount' => 'required|numeric|min:0.01',
+            'payment_method' => 'required|string',
             'reference_number' => 'nullable|string',
-            'paid_at'          => 'required|date',
-            'description'      => 'required|string',
+            'paid_at' => 'required|date',
+            'description' => 'required|string',
+            'term_id' => 'nullable|exists:student_payment_terms,id', // Optional: specify which term
         ]);
 
-        $transaction = Transaction::create([
-            'user_id'         => $user->id,
-            'reference'       => 'PAY-' . Str::upper(Str::random(8)),
-            'kind'            => 'payment',
-            'type'            => 'Payment',
-            'amount'          => $data['amount'],
-            'status'          => 'paid',
-            'payment_channel' => $data['payment_method'],
-            'paid_at'         => $data['paid_at'],
-            'meta' => [
-                'reference_number' => $data['reference_number'] ?: null,
-                'description'      => $data['description'],
-            ],
-        ]);
+        DB::beginTransaction();
+        try {
+            // Create payment transaction
+            $transaction = Transaction::create([
+                'user_id' => $user->id,
+                'reference' => 'PAY-' . Str::upper(Str::random(8)),
+                'kind' => 'payment',
+                'type' => 'Payment',
+                'amount' => $data['amount'],
+                'status' => 'paid',
+                'payment_channel' => $data['payment_method'],
+                'paid_at' => $data['paid_at'],
+                'meta' => [
+                    'reference_number' => $data['reference_number'] ?: null,
+                    'description' => $data['description'],
+                    'term_id' => $data['term_id'] ?? null,
+                ],
+            ]);
 
-        // Update balance
-        $this->recalculateAccount($user);
+            // Update payment term(s)
+            if (isset($data['term_id'])) {
+                // Apply to specific term
+                $term = StudentPaymentTerm::findOrFail($data['term_id']);
+                $term->paid_amount += $data['amount'];
+                if ($term->paid_amount >= $term->amount) {
+                    $term->status = 'paid';
+                } elseif ($term->paid_amount > 0) {
+                    $term->status = 'partial';
+                }
+                $term->save();
+            } else {
+                // Apply to earliest unpaid term(s)
+                $remainingAmount = $data['amount'];
+                $terms = StudentPaymentTerm::where('user_id', $user->id)
+                    ->unpaid()
+                    ->orderBy('term_order')
+                    ->get();
 
-        // Promote student if fully paid
-        if ($user->role === 'student' && $user?->student) {
-            $this->checkAndPromoteStudent($user->student);
+                foreach ($terms as $term) {
+                    if ($remainingAmount <= 0) break;
+
+                    $termBalance = $term->amount - $term->paid_amount;
+                    $paymentForThisTerm = min($remainingAmount, $termBalance);
+
+                    $term->paid_amount += $paymentForThisTerm;
+                    if ($term->paid_amount >= $term->amount) {
+                        $term->status = 'paid';
+                    } else {
+                        $term->status = 'partial';
+                    }
+                    $term->save();
+
+                    $remainingAmount -= $paymentForThisTerm;
+                }
+            }
+
+            DB::commit();
+
+            return redirect()
+                ->route('student.account')
+                ->with('success', 'Payment recorded successfully.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Payment recording failed', [
+                'error' => $e->getMessage(),
+            ]);
+            
+            return back()->withErrors([
+                'error' => 'Failed to record payment. Please try again.'
+            ]);
         }
-
-        return redirect()
-            ->route('student.account')
-            ->with('success', 'Payment recorded successfully.');
     }
 
     protected function recalculateAccount($user): void

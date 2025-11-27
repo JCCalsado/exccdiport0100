@@ -673,25 +673,17 @@ class StudentFeeController extends Controller
             'address' => 'required|string|max:255',
             'year_level' => 'required|string',
             'student_id' => 'nullable|string|unique:users,student_id',
-            
-            // OBE fields
             'program_id' => 'nullable|exists:programs,id',
             'semester' => 'nullable|string',
             'school_year' => 'nullable|string',
-            
-            // Legacy field
             'course' => 'nullable|string',
-            
-            // Auto-generate assessment flag
             'auto_generate_assessment' => 'boolean',
         ]);
 
         DB::beginTransaction();
         try {
-            // Auto-generate ID if empty
             $studentId = $validated['student_id'] ?: $this->generateUniqueStudentId();
 
-            // Determine course name
             if ($validated['program_id']) {
                 $program = Program::find($validated['program_id']);
                 $courseName = $program->full_name;
@@ -699,7 +691,7 @@ class StudentFeeController extends Controller
                 $courseName = $validated['course'];
             }
 
-            // ✅ STEP 1: Create user record FIRST
+            // Create user
             $user = User::create([
                 'last_name' => $validated['last_name'],
                 'first_name' => $validated['first_name'],
@@ -716,14 +708,13 @@ class StudentFeeController extends Controller
                 'password' => Hash::make('password'),
             ]);
 
-            // ✅ VERIFY: Ensure user has an ID before proceeding
             if (!$user->id) {
-                throw new \Exception('Failed to create user record - no ID generated');
+                throw new \Exception('Failed to create user record');
             }
 
-            // ✅ STEP 2: Create Student model entry with verified user_id
-            $student = \App\Models\Student::create([
-                'user_id' => $user->id,  // ← This will now work because user_id is in $fillable
+            // Create student record
+            Student::create([
+                'user_id' => $user->id,
                 'student_id' => $studentId,
                 'last_name' => $validated['last_name'],
                 'first_name' => $validated['first_name'],
@@ -735,18 +726,13 @@ class StudentFeeController extends Controller
                 'birthday' => $validated['birthday'],
                 'phone' => $validated['phone'],
                 'address' => $validated['address'],
-                'total_balance' => 0,
+                'total_balance' => 0, // ✅ STAYS ZERO UNTIL CHARGES POSTED
             ]);
 
-            // ✅ VERIFY: Ensure student record was created with user_id
-            if (!$student->user_id) {
-                throw new \Exception('Student record created but user_id was not set');
-            }
-
-            // ✅ STEP 3: Create account
+            // Create account with ZERO balance
             $user->account()->create(['balance' => 0]);
 
-            // ✅ STEP 4: Auto-generate OBE assessment if requested
+            // ✅ Generate PAYMENT TERMS (not charges)
             if ($request->boolean('auto_generate_assessment') && $validated['program_id']) {
                 $curriculum = $this->curriculumService->getCurriculumForTerm(
                     $validated['program_id'],
@@ -756,6 +742,7 @@ class StudentFeeController extends Controller
                 );
 
                 if ($curriculum) {
+                    // This now creates payment terms, NOT transactions
                     $this->curriculumService->generateAssessment($user, $curriculum);
                 }
             }
@@ -764,7 +751,7 @@ class StudentFeeController extends Controller
 
             return redirect()
                 ->route('student-fees.show', $user->id)
-                ->with('success', 'Student created successfully!');
+                ->with('success', 'Student created successfully with payment schedule!');
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -772,7 +759,6 @@ class StudentFeeController extends Controller
             \Log::error('Student creation failed', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
-                'validated_data' => $validated,
             ]);
             
             return back()->withErrors([

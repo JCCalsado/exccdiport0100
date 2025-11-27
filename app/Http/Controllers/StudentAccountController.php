@@ -3,10 +3,10 @@
 namespace App\Http\Controllers;
 
 use Inertia\Inertia;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use App\Services\AssessmentDataService;
-use App\Models\Payment;
+use App\Models\StudentPaymentTerm;
+use App\Models\StudentAssessment;
+use App\Models\Transaction;
 
 class StudentAccountController extends Controller
 {
@@ -18,33 +18,60 @@ class StudentAccountController extends Controller
             $user->account()->create(['balance' => 0]);
         }
 
-        // ✅ USE UNIFIED DATA SERVICE
-        $data = AssessmentDataService::getUnifiedAssessmentData($user);
+        // Get latest assessment
+        $assessment = StudentAssessment::where('user_id', $user->id)
+            ->with('curriculum.program')
+            ->where('status', 'active')
+            ->latest()
+            ->first();
 
-        // ✅ ADD MISSING PAYMENTS DATA
-        if ($user->student) {
-            $data['payments'] = Payment::where('student_id', $user->student->id)
-                ->orderBy('paid_at', 'desc')
-                ->get()
-                ->map(function ($payment) {
-                    return [
-                        'id' => $payment->id,
-                        'amount' => (float) $payment->amount,
-                        'payment_method' => $payment->payment_method,
-                        'reference_number' => $payment->reference_number,
-                        'description' => $payment->description,
-                        'status' => $payment->status,
-                        'paid_at' => $payment->paid_at?->toISOString(),
-                        'created_at' => $payment->created_at?->toISOString(),
-                    ];
-                })
-                ->toArray();
-        } else {
-            $data['payments'] = [];
-        }
+        // Get payment terms
+        $paymentTerms = StudentPaymentTerm::where('user_id', $user->id)
+            ->orderBy('term_order')
+            ->get();
 
-        return Inertia::render('Student/AccountOverview', array_merge($data, [
-            'tab' => request('tab', 'fees'),
-        ]));
+        // Get payment history (actual transactions)
+        $payments = Transaction::where('user_id', $user->id)
+            ->where('kind', 'payment')
+            ->orderBy('paid_at', 'desc')
+            ->get();
+
+        // Calculate stats
+        $totalScheduled = $paymentTerms->sum('amount');
+        $totalPaid = $paymentTerms->sum('paid_amount');
+        $remainingDue = $totalScheduled - $totalPaid;
+
+        return Inertia::render('Student/AccountOverview', [
+            'student' => [
+                'id' => $user->id,
+                'student_id' => $user->student_id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'course' => $user->course,
+                'year_level' => $user->year_level,
+            ],
+            'account' => $user->account,
+            'assessment' => $assessment,
+            'paymentTerms' => $paymentTerms->map(fn($term) => [
+                'id' => $term->id,
+                'term_name' => $term->term_name,
+                'amount' => (float) $term->amount,
+                'paid_amount' => (float) $term->paid_amount,
+                'remaining_balance' => (float) $term->remaining_balance,
+                'due_date' => $term->due_date?->format('Y-m-d'),
+                'status' => $term->status,
+                'is_overdue' => $term->due_date && $term->due_date->isPast() && !$term->isFullyPaid(),
+            ]),
+            'payments' => $payments,
+            'stats' => [
+                'total_scheduled' => (float) $totalScheduled,
+                'total_paid' => (float) $totalPaid,
+                'remaining_due' => (float) $remainingDue,
+            ],
+            'currentTerm' => [
+                'year' => $assessment?->school_year ? explode('-', $assessment->school_year)[0] : now()->year,
+                'semester' => $assessment?->semester ?? '1st Sem',
+            ],
+        ]);
     }
 }
