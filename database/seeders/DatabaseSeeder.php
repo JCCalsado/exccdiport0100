@@ -17,6 +17,7 @@ class DatabaseSeeder extends Seeder
             EnhancedSubjectSeeder::class,
             FeeSeeder::class,
             NotificationSeeder::class,
+            StudentPaymentTermsSeeder::class,
         ]);
         
         $this->command->info('✅ Clean system setup completed!');
