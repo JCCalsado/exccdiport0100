@@ -26,12 +26,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 });
 
+Route::middleware(['auth', 'verified', 'role:student'])->group(function () {
+    Route::get('/student/profile', [StudentController::class, 'profile'])->name('student.profile');
+});
+
 // Student-specific routes
 Route::middleware(['auth', 'verified', 'role:student'])->prefix('student')->group(function () {
     Route::get('/dashboard', [StudentDashboardController::class, 'index'])->name('student.dashboard');
     Route::get('/account', [StudentAccountController::class, 'index'])->name('student.account');
     Route::get('/payment', [PaymentController::class, 'create'])->name('payment.create');
-    Route::get('/my-profile', [StudentController::class, 'studentProfile'])->name('my-profile');
 });
 
 // Student Archive routes (for admin/accounting)
@@ -145,8 +148,13 @@ Route::middleware('auth')->prefix('settings')->name('password.')->group(function
     Route::put('password', [\App\Http\Controllers\Settings\PasswordController::class, 'update'])->name('update');
 });
 
-Route::middleware('auth')->prefix('settings')->group(function () {
+Route::middleware(['auth', 'verified'])->prefix('settings')->group(function () {
     Route::get('appearance', fn () => Inertia::render('settings/Appearance'))->name('appearance');
+    
+    // Admin-only settings
+    Route::middleware('role:admin')->group(function () {
+        Route::get('system', fn () => Inertia::render('settings/System'))->name('settings.system');
+    });
 });
 
 require __DIR__ . '/settings.php';

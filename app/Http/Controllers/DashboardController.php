@@ -12,34 +12,11 @@ class DashboardController extends Controller
     {
         $user = auth()->user();
 
-        // Redirect users to their role-specific dashboards
-        switch ($user->role) {
-            case 'student':
-                return redirect()->route('student.dashboard');
-
-            case 'accounting':
-                return redirect()->route('accounting.dashboard');
-
-            case 'admin':
-                return redirect()->route('admin.dashboard');
-
-            default:
-                // Notifications for this role OR all
-                $notifications = Notification::query()
-                    ->where(function ($q) use ($user) {
-                        $q->where('target_role', $user->role)
-                          ->orWhere('target_role', 'all');
-                    })
-                    ->orderByDesc('start_date')
-                    ->take(5)
-                    ->get();
-
-                return Inertia::render('Dashboard', [
-                    'notifications' => $notifications,
-                    'auth' => [
-                        'user' => $user,
-                    ],
-                ]);
-        }
+        return match($user->role) {
+            'student' => redirect()->route('student.dashboard'),
+            'accounting' => redirect()->route('accounting.dashboard'),
+            'admin' => redirect()->route('admin.dashboard'),
+            default => abort(403, 'Invalid user role'),
+        };
     }
 }

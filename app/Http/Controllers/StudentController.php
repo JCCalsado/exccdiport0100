@@ -143,23 +143,12 @@ class StudentController extends Controller
         return redirect()->route('students.index')->with('success', 'Student updated successfully!');
     }
 
-    public function studentProfile(Request $request)
+    public function profile(Request $request)
     {
         $user = $request->user();
+        $student = Student::where('user_id', $user->id)->with('payments')->firstOrFail();
 
-        if ($user->role === 'student') {
-            // Student sees their own profile
-            $student = Student::where('email', $user->email)->firstOrFail();
-        } else {
-            // Admin/accounting can choose which student to view
-            // Example: load the first one or redirect
-            $student = Student::with('payments')->first(); 
-            // Or you could redirect them to /students for selection
-        }
-
-        $student->load('payments');
-
-        return Inertia::render('Students/StudentProfile', [
+        return Inertia::render('Student/Profile', [
             'student' => $student,
         ]);
     }

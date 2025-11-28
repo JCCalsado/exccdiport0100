@@ -67,9 +67,9 @@ const allNavItems: NavItem[] = [
     },
     {
         title: 'My Profile',
-        href: route('my-profile'),
+        href: route('student.profile'),
         icon: User,
-        roles: ['student'], // Only for students
+        roles: ['student'],
     },
     {
         title: 'Student Fee Management',
