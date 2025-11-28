@@ -54,7 +54,7 @@ class StudentController extends Controller
         $validated = $request->validate([
             'student_id' => 'required|string|unique:students,student_id',
             'name' => 'required|string|max:255',
-            'email' => 'required|email|unique:students,email',
+            'email' => 'required|email|unique:students,email|unique:users,email',
             'course' => 'required|string|max:255',
             'year_level' => 'required|string',
             'birthday' => 'nullable|date',
@@ -63,9 +63,38 @@ class StudentController extends Controller
             'total_balance' => 'required|numeric|min:0',
         ]);
 
+        // Split name into first/last
+        $parts = explode(' ', $validated['name'], 2);
+        $first = $parts[0] ?? '';
+        $last = $parts[1] ?? 'N/A';
+
+        // Create corresponding USER
+        $user = \App\Models\User::create([
+            'student_id' => $validated['student_id'],
+            'first_name' => $first,
+            'last_name' => $last,
+            'middle_initial' => null,
+
+            'email' => $validated['email'],
+            'password' => bcrypt('password123'), // You may change this
+            'role' => 'student',
+            'status' => 'active',
+
+            'birthday' => $validated['birthday'] ?? null,
+            'phone' => $validated['phone'] ?? null,
+            'address' => $validated['address'] ?? null,
+            'course' => $validated['course'],
+            'year_level' => $validated['year_level'],
+        ]);
+
+        // Now create the Student and link to user_id
+        $validated['user_id'] = $user->id;
+
         Student::create($validated);
 
-        return redirect()->route('students.index')->with('success', 'Student created successfully!');
+        return redirect()
+            ->route('students.index')
+            ->with('success', 'Student created successfully!');
     }
 
     // Show single student  

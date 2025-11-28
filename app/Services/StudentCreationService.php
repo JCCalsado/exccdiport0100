@@ -7,6 +7,7 @@ use App\Models\Student;
 use App\Models\Program;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use App\Services\CurriculumService;
 
 class StudentCreationService
 {
@@ -23,13 +24,10 @@ class StudentCreationService
     public function createStudent(array $data): User
     {
         return DB::transaction(function () use ($data) {
-            // 1. Generate student ID if not provided
             $studentId = $data['student_id'] ?? $this->generateUniqueStudentId();
 
-            // 2. Determine course name
             $courseName = $this->determineCourseName($data);
 
-            // 3. Create User record
             $user = User::create([
                 'last_name' => $data['last_name'],
                 'first_name' => $data['first_name'],
@@ -43,10 +41,9 @@ class StudentCreationService
                 'student_id' => $studentId,
                 'role' => 'student',
                 'status' => User::STATUS_ACTIVE,
-                'password' => Hash::make('password'), // Default password
+                'password' => Hash::make('password'),
             ]);
 
-            // 4. Create Student profile
             Student::create([
                 'user_id' => $user->id,
                 'student_id' => $studentId,
@@ -63,10 +60,8 @@ class StudentCreationService
                 'total_balance' => 0,
             ]);
 
-            // 5. Create Account
             $user->account()->create(['balance' => 0]);
 
-            // 6. Auto-generate OBE assessment if requested
             if (($data['auto_generate_assessment'] ?? false) && isset($data['program_id'])) {
                 $this->generateOBEAssessment($user, $data);
             }
@@ -75,9 +70,6 @@ class StudentCreationService
         });
     }
 
-    /**
-     * Generate unique student ID
-     */
     protected function generateUniqueStudentId(): string
     {
         $year = now()->year;
@@ -97,7 +89,6 @@ class StudentCreationService
 
             $newStudentId = "{$year}-{$newNumber}";
             
-            // Double-check uniqueness
             $attempts = 0;
             while (User::where('student_id', $newStudentId)->exists() && $attempts < 10) {
                 $lastNumber = intval($newNumber);
@@ -114,9 +105,6 @@ class StudentCreationService
         });
     }
 
-    /**
-     * Determine course name from program or legacy course field
-     */
     protected function determineCourseName(array $data): string
     {
         if (isset($data['program_id']) && $data['program_id']) {
@@ -127,9 +115,6 @@ class StudentCreationService
         return $data['course'] ?? 'Unknown';
     }
 
-    /**
-     * Generate OBE curriculum assessment for the student
-     */
     protected function generateOBEAssessment(User $user, array $data): void
     {
         try {
@@ -159,7 +144,6 @@ class StudentCreationService
                 'user_id' => $user->id,
                 'error' => $e->getMessage(),
             ]);
-            // Don't throw - student creation should succeed even if assessment fails
         }
     }
 }
