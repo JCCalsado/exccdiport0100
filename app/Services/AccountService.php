@@ -46,27 +46,45 @@ class AccountService
      */
     protected static function promoteStudent(User $user): void
     {
+        // ✅ Only promote at end of school year
+        $currentMonth = now()->month;
+        
+        // May-June is end of school year
+        if ($currentMonth < 5 || $currentMonth > 6) {
+            // Not promotion season
+            return;
+        }
+        
         $student = $user->student;
-
-        $yearLevels = [
-            '1st Year',
-            '2nd Year',
-            '3rd Year',
-            '4th Year',
-        ];
-
+        if (!$student) return;
+        
+        // ✅ Check if current year assessment is fully paid
+        $currentYearAssessment = StudentAssessment::where('user_id', $user->id)
+            ->where('year_level', $student->year_level)
+            ->where('school_year', now()->year . '-' . (now()->year + 1))
+            ->where('status', 'active')
+            ->first();
+        
+        if (!$currentYearAssessment) return;
+        
+        $yearLevels = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
         $currentIndex = array_search($student->year_level, $yearLevels);
 
         if ($currentIndex !== false && $currentIndex < count($yearLevels) - 1) {
-            // ✅ Promote to next year
             $student->update([
                 'year_level' => $yearLevels[$currentIndex + 1],
             ]);
-        } elseif ($currentIndex === count($yearLevels) - 1) {
-            // ✅ Graduate if last year is completed
-            $student->update([
-                'status' => 'graduated',
+            
+            \Log::info('Student promoted', [
+                'user_id' => $user->id,
+                'from' => $yearLevels[$currentIndex],
+                'to' => $yearLevels[$currentIndex + 1],
             ]);
+        } elseif ($currentIndex === count($yearLevels) - 1) {
+            $student->update(['status' => 'graduated']);
+            $user->update(['status' => User::STATUS_GRADUATED]);
+            
+            \Log::info('Student graduated', ['user_id' => $user->id]);
         }
     }
 }
