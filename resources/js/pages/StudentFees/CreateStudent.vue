@@ -77,14 +77,14 @@ const form = useForm({
     school_year: props.schoolYears[0] || '',
     
     // Academic Information - Legacy
-    course: '',
+    course: null as string | null, // ✅ FIX: Use null
     
     // Options
     auto_generate_assessment: true,
     student_id: '',
 });
 
-const curriculumPreview = ref<any>(null);
+const curriculumPreview = ref<CurriculumPreview | null>(null);
 const isLoadingPreview = ref(false);
 const previewError = ref<string | null>(null);
 const useOBECurriculum = ref(true);
@@ -111,7 +111,7 @@ const isFormValid = computed(() => {
     if (useOBECurriculum.value) {
         return basicInfoValid && form.program_id !== null;
     } else {
-        return basicInfoValid && form.course !== '';
+        return basicInfoValid && form.course !== null && form.course !== '';
     }
 });
 
@@ -152,7 +152,7 @@ const fetchCurriculumPreview = async () => {
 watch(() => form.program_id, (newVal) => {
     if (newVal) {
         useOBECurriculum.value = true;
-        form.course = '';
+        form.course = null; // ✅ FIX
         form.auto_generate_assessment = true;
         fetchCurriculumPreview();
     } else {
@@ -169,12 +169,13 @@ watch([() => form.year_level, () => form.semester, () => form.school_year], () =
 
 watch(() => useOBECurriculum.value, (newVal) => {
     if (newVal) {
-        form.course = '';
+        form.course = null; // ✅ FIX
         if (form.program_id) {
             fetchCurriculumPreview();
         }
     } else {
         form.program_id = null;
+        form.course = ''; // ✅ Reset to empty string for input
         form.auto_generate_assessment = false;
         curriculumPreview.value = null;
         previewError.value = null;
@@ -204,7 +205,7 @@ const validateForm = (): boolean => {
             return false;
         }
     } else {
-        if (!form.course) {
+        if (!form.course || form.course === '') {
             alert('Please select a legacy course');
             return false;
         }
@@ -223,7 +224,22 @@ const submit = () => {
         return;
     }
     
-    form.post(route('student-fees.store-student'), {
+    // ✅ FIX: Clean up payload before submission
+    const payload = { ...form.data() };
+    const cleaned = payload as Record<string, any>;
+    
+    // Remove course if in OBE mode
+    if (useOBECurriculum.value) {
+        delete cleaned.course;
+    } else {
+        // Remove OBE fields if in legacy mode
+        delete cleaned.program_id;
+        delete cleaned.semester;
+        delete cleaned.school_year;
+        cleaned.auto_generate_assessment = false;
+    }
+    
+    form.transform(() => cleaned).post(route('student-fees.store-student'), {
         preserveScroll: true,
         onSuccess: () => {
             form.reset();

@@ -1,6 +1,3 @@
-// Base User type
-// resources/js/types/user.d.ts
-
 export interface User {
   id: number;
   name: string;

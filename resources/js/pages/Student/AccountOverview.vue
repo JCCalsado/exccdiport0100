@@ -4,30 +4,18 @@ import { Head, Link, useForm } from '@inertiajs/vue3'
 import AppLayout from '@/layouts/AppLayout.vue'
 import Breadcrumbs from '@/components/Breadcrumbs.vue'
 import TransactionDetailsDialog from '@/components/TransactionDetailsDialog.vue'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
+import { Button, Input, Label, Separator } from '@/components/ui'
 import { useFormatters } from '@/composables/useFormatters'
 import type { PaymentMethod } from '@/types/transaction'
-import {
-  CreditCard,
-  CheckCircle,
-  AlertCircle,
-  Clock,
-  Receipt,
-  History,
-  DollarSign,
-} from 'lucide-vue-next'
+import { CreditCard, CheckCircle, AlertCircle, Clock, Receipt, History, DollarSign } from 'lucide-vue-next'
 
+/* ===============================
+   TypeScript Interfaces
+================================ */
 interface SubjectLine {
   subject_code?: string
-  code?: string
   description?: string
-  title?: string
-  name?: string
   units?: number
-  total_units?: number
   lec_units?: number
   lab_units?: number
   tuition?: number
@@ -51,22 +39,10 @@ interface Transaction {
   fee?: any
 }
 
-interface Account {
-  balance: number
-  student_name?: string
-  course?: string
-  year_level?: string
-  assessment_number?: string
-  registered_at?: string
-  enrollment_date?: string
-  account_number?: string
-}
-
 interface Assessment {
   assessment_number?: string
   school_year?: string
   semester?: string
-  status?: string
   total_assessment?: number
   tuition_fee?: number
   other_fees?: number
@@ -83,47 +59,27 @@ interface Assessment {
   total_units?: number
 }
 
-interface Fee {
-  name: string
-  amount: number
-  category?: string
-}
-
-interface Student {
-  full_name?: string
-  name?: string
+interface Account {
+  balance: number
+  student_name?: string
   course?: string
-  program?: string
   year_level?: string
-  major?: string
-  specialization?: string
-  student_number?: string
-  id_number?: string
+  assessment_number?: string
+  registered_at?: string
+  enrollment_date?: string
+  account_number?: string
 }
 
 interface Props {
   student?: Record<string, any>
-  account?: Record<string, any>
-  assessment?: {
-    assessment_number?: string
-    school_year?: string
-    semester?: string
-    status?: string
-    total_assessment?: number
-    tuition_fee?: number
-    other_fees?: number
-    registration_fee?: number
-    lab_fee?: number
-    misc_fee?: number
-    subjects?: SubjectLine[]
-    total_units?: number
-  }
+  account?: Account
+  assessment?: Assessment
   assessmentLines?: SubjectLine[]
   termsOfPayment?: Record<string, number> | null
   transactions?: Transaction[]
   fees?: { name: string; amount: number; category?: string }[]
-  payments?: any[]  // ✅ FIXED
-  feeBreakdown?: any[]  // ✅ FIXED
+  payments?: any[]
+  feeBreakdown?: any[]
   currentTerm?: { year: number; semester: string }
   tab?: 'fees' | 'history' | 'payment'
   stats?: {
@@ -134,6 +90,9 @@ interface Props {
   }
 }
 
+/* ===============================
+   Props Defaults
+================================ */
 const props = withDefaults(defineProps<Props>(), {
   student: () => ({}),
   account: () => ({ balance: 0 }),
@@ -152,6 +111,9 @@ const props = withDefaults(defineProps<Props>(), {
   }),
 })
 
+/* ===============================
+   Utilities
+================================ */
 const { formatCurrency, formatDate, formatPercentage } = useFormatters()
 
 const breadcrumbs = [
@@ -160,15 +122,17 @@ const breadcrumbs = [
 ]
 
 const getTabFromUrl = (): 'fees' | 'history' | 'payment' => {
-  const urlParams = new URLSearchParams(window.location.search)
-  const tab = urlParams.get('tab')
-  return (tab === 'payment' || tab === 'history') ? tab as any : 'fees'
+  const tab = new URLSearchParams(window.location.search).get('tab')
+  return tab === 'history' || tab === 'payment' ? tab : 'fees'
 }
 
 const activeTab = ref<'fees' | 'history' | 'payment'>(props.tab || getTabFromUrl())
 const showDetailsDialog = ref(false)
 const selectedTransaction = ref<Transaction | null>(null)
 
+/* ===============================
+   Payment Form
+================================ */
 const paymentForm = useForm({
   amount: 0,
   payment_method: 'cash' as PaymentMethod,
@@ -177,116 +141,90 @@ const paymentForm = useForm({
   description: 'Payment for fees',
 })
 
-// ============================================
-// CERTIFICATE OF MATRICULATION DATA
-// ============================================
-
+/* ===============================
+   Computed: Student Info & Term
+================================ */
 const latestAssessment = computed(() => props.assessment || {})
 
 const studentInfo = computed(() => ({
-  name: props.student?.full_name || props.student?.name || props.account?.student_name || 'N/A',
-  course: props.account?.course || props.student?.course || props.student?.program || 'N/A',
+  name: props.student?.full_name || props.account?.student_name || 'N/A',
+  course: props.account?.course || props.student?.course || 'N/A',
   yearLevel: props.student?.year_level || props.account?.year_level || 'N/A',
-  major: props.student?.major || props.student?.specialization || 'N/A',
+  major: props.student?.major || 'N/A',
   registeredAt: props.account?.registered_at || props.account?.enrollment_date || null,
-  studentNumber: props.student?.student_number || props.student?.id_number || props.account?.account_number || 'N/A',
+  studentNumber: props.student?.student_number || props.account?.account_number || 'N/A',
 }))
 
 const termInfo = computed(() => ({
   semester: props.currentTerm?.semester || latestAssessment.value.semester || '1st Sem',
   year: props.currentTerm?.year || new Date().getFullYear(),
-  schoolYear: latestAssessment.value.school_year || `${props.currentTerm?.year || new Date().getFullYear()}-${(props.currentTerm?.year || new Date().getFullYear()) + 1}`,
+  schoolYear: latestAssessment.value.school_year || `${props.currentTerm?.year}-${props.currentTerm?.year + 1}`,
   assessmentNumber: latestAssessment.value.assessment_number || props.account?.assessment_number || 'N/A',
 }))
 
-const subjects = computed<SubjectLine[]>(() => {
-  const subjectList = latestAssessment.value.subjects || props.assessmentLines || []
-  
-  if (Array.isArray(subjectList) && subjectList.length) {
-    return subjectList.map((s: any) => ({
-      subject_code: s.subject_code ?? s.code ?? s.course_code ?? '',
-      description: s.description ?? s.title ?? s.name ?? s.subject_name ?? '',
-      units: Number(s.units ?? s.total_units ?? s.unit ?? s.credit_units ?? 0),
-      lec_units: Number(s.lec_units ?? s.lecture_units ?? 0),
-      lab_units: Number(s.lab_units ?? s.laboratory_units ?? 0),
-      tuition: Number(s.tuition ?? 0),
-      lab_fee: Number(s.lab_fee ?? s.lab ?? 0),
-      misc_fee: Number(s.misc_fee ?? s.misc ?? 0),
-      total: Number(s.total ?? (Number(s.tuition ?? 0) + Number(s.lab_fee ?? 0) + Number(s.misc_fee ?? 0))),
-      semester: s.semester ?? termInfo.value.semester,
-      time: s.time ?? s.schedule_time ?? '',
-      day: s.day ?? s.schedule_day ?? '',
-    }))
-  }
-  return []
+/* ===============================
+   Subjects
+================================ */
+const subjects = computed(() => {
+  const list = latestAssessment.value.subjects || props.assessmentLines || []
+  return list.map((s: any) => ({
+    subject_code: s.subject_code ?? s.code ?? '',
+    description: s.description ?? s.title ?? '',
+    units: Number(s.units ?? 0),
+    lec_units: Number(s.lec_units ?? 0),
+    lab_units: Number(s.lab_units ?? 0),
+    tuition: Number(s.tuition ?? 0),
+    lab_fee: Number(s.lab_fee ?? 0),
+    misc_fee: Number(s.misc_fee ?? 0),
+    total: Number(s.total ?? (Number(s.tuition ?? 0) + Number(s.lab_fee ?? 0) + Number(s.misc_fee ?? 0))),
+    semester: s.semester ?? termInfo.value.semester,
+    time: s.time ?? '',
+    day: s.day ?? '',
+  }))
 })
 
 const totalUnits = computed(() => {
-  if (typeof latestAssessment.value.total_units === 'number' && latestAssessment.value.total_units > 0) {
-    return latestAssessment.value.total_units
-  }
-  const calculated = subjects.value.reduce((sum, subject) => sum + Number(subject.units || 0), 0)
-  return calculated > 0 ? calculated : 0
+  if (latestAssessment.value.total_units) return latestAssessment.value.total_units
+  return subjects.value.reduce((sum, s) => sum + (s.units || 0), 0)
 })
 
+/* ===============================
+   Fees & Payments
+================================ */
 const feesBreakdown = computed(() => ({
-  registration: Number(latestAssessment.value.registration_fee ?? latestAssessment.value.registration ?? 0),
-  tuition: Number(latestAssessment.value.tuition_fee ?? 0),
-  lab: Number(latestAssessment.value.lab_fee ?? 0),
-  misc: Number(latestAssessment.value.misc_fee ?? 0),
-  other: Number(latestAssessment.value.other_fees ?? 0),
+  registration: latestAssessment.value.registration_fee ?? latestAssessment.value.registration ?? 0,
+  tuition: latestAssessment.value.tuition_fee ?? 0,
+  lab: latestAssessment.value.lab_fee ?? 0,
+  misc: latestAssessment.value.misc_fee ?? 0,
+  other: latestAssessment.value.other_fees ?? 0,
 }))
 
 const totalAssessmentFee = computed(() => {
-  if (typeof latestAssessment.value.total_assessment === 'number' && latestAssessment.value.total_assessment > 0) {
-    return latestAssessment.value.total_assessment
-  }
-  
-  const sum = feesBreakdown.value.registration + 
-              feesBreakdown.value.tuition + 
-              feesBreakdown.value.lab + 
-              feesBreakdown.value.misc + 
-              feesBreakdown.value.other
-  
-  if (sum > 0) {
-    return Math.round(sum * 100) / 100
-  }
-  
-  return props.fees?.reduce((sum, fee) => sum + Number(fee.amount || 0), 0) ?? 0
+  if (latestAssessment.value.total_assessment) return latestAssessment.value.total_assessment
+  const sum = Object.values(feesBreakdown.value).reduce((a, b) => a + b, 0)
+  return sum
 })
 
 const termsOfPaymentBreakdown = computed(() => ({
-  upon_registration: latestAssessment.value.upon_registration ?? latestAssessment.value.registration ?? props.termsOfPayment?.upon_registration ?? props.termsOfPayment?.registration ?? 0,
+  upon_registration: latestAssessment.value.upon_registration ?? latestAssessment.value.registration ?? props.termsOfPayment?.upon_registration ?? 0,
   prelim: latestAssessment.value.prelim ?? props.termsOfPayment?.prelim ?? 0,
   midterm: latestAssessment.value.midterm ?? props.termsOfPayment?.midterm ?? 0,
   semi_final: latestAssessment.value.semi_final ?? props.termsOfPayment?.semi_final ?? 0,
   final: latestAssessment.value.final ?? props.termsOfPayment?.final ?? 0,
 }))
 
-// ============================================
-// PAYMENT TRACKING
-// ============================================
-
+/* ===============================
+   Payment Tracking
+================================ */
 const totalPaid = computed(() => {
   return (props.transactions ?? [])
     .filter(t => t.kind === 'payment' && t.status === 'paid')
-    .reduce((sum, t) => sum + Number(t.amount || 0), 0)
+    .reduce((sum, t) => sum + Number(t.amount), 0)
 })
 
 const remainingBalance = computed(() => {
-  const charges = (props.transactions ?? [])
-    .filter(t => t.kind === 'charge')
-    .reduce((sum, t) => sum + Number(t.amount || 0), 0)
-  const payments = (props.transactions ?? [])
-    .filter(t => t.kind === 'payment' && t.status === 'paid')
-    .reduce((sum, t) => sum + Number(t.amount || 0), 0)
-  const diff = charges - payments
-  
-  if ((props.transactions ?? []).length === 0) {
-    const assessed = totalAssessmentFee.value
-    return Math.max(0, Math.round((assessed - totalPaid.value) * 100) / 100)
-  }
-  return Math.max(0, Math.round(diff * 100) / 100)
+  const charges = (props.transactions ?? []).filter(t => t.kind === 'charge').reduce((sum, t) => sum + Number(t.amount), 0)
+  return Math.max(0, charges - totalPaid.value)
 })
 
 const paymentPercentage = computed(() => {
@@ -295,16 +233,14 @@ const paymentPercentage = computed(() => {
 })
 
 const paymentHistory = computed(() => {
-  return (props.transactions ?? [])
-    .filter(t => t.kind === 'payment')
-    .sort((a, b) => (new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime()))
+  return (props.transactions ?? []).filter(t => t.kind === 'payment').sort((a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime())
 })
 
 const canSubmitPayment = computed(() => {
   return remainingBalance.value > 0 &&
-    paymentForm.amount > 0 &&
-    paymentForm.amount <= remainingBalance.value &&
-    !paymentForm.processing
+         paymentForm.amount > 0 &&
+         paymentForm.amount <= remainingBalance.value &&
+         !paymentForm.processing
 })
 
 const paymentFormErrors = computed(() => {
@@ -316,15 +252,9 @@ const paymentFormErrors = computed(() => {
   return errors
 })
 
-watch(() => props.tab, (newTab) => {
-  if (newTab) activeTab.value = newTab
-})
-
-onMounted(() => {
-  const urlTab = getTabFromUrl()
-  if (urlTab) activeTab.value = urlTab
-})
-
+/* ===============================
+   Methods
+================================ */
 const viewTransaction = (transaction: Transaction) => {
   selectedTransaction.value = transaction
   showDetailsDialog.value = true
@@ -348,10 +278,6 @@ const submitPayment = () => {
     preserveScroll: true,
     onSuccess: () => {
       paymentForm.reset()
-      paymentForm.amount = 0
-      paymentForm.payment_method = 'cash'
-      paymentForm.paid_at = new Date().toISOString().split('T')[0]
-      paymentForm.description = 'Payment for fees'
       activeTab.value = 'history'
     },
     onError: (errors) => {
@@ -360,9 +286,19 @@ const submitPayment = () => {
   })
 }
 
-const downloadPDF = () => {
-  console.log('Download PDF')
-}
+const downloadPDF = () => console.log('Download PDF')
+
+/* ===============================
+   Lifecycle & Watchers
+================================ */
+watch(() => props.tab, (newTab) => {
+  if (newTab) activeTab.value = newTab
+})
+
+onMounted(() => {
+  const urlTab = getTabFromUrl()
+  if (urlTab) activeTab.value = urlTab
+})
 </script>
 
 <template>

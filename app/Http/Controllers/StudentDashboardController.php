@@ -14,12 +14,18 @@ class StudentDashboardController extends Controller
     {
         $user = $request->user();
 
-        if (!$user->account) {
-            $user->account()->create(['balance' => 0]);
+        // Ensure the student exists
+        if (!$user->student) {
+            abort(404, 'Student profile not found.');
         }
 
-        // Get payment terms (what they WILL pay)
-        $paymentTerms = StudentPaymentTerm::where('user_id', $user->id)
+        // Use the student's ACCOUNT ID
+        $accountId = $user->student->account_id;
+
+        // ==========================================================
+        //  STUDENT PAYMENT TERMS (NOW USING account_id)
+        // ==========================================================
+        $paymentTerms = StudentPaymentTerm::where('account_id', $accountId)
             ->orderBy('term_order')
             ->get()
             ->map(function ($term) {
@@ -39,10 +45,11 @@ class StudentDashboardController extends Controller
         $totalPaid = $paymentTerms->sum('paid_amount');
         $remainingDue = $totalScheduled - $totalPaid;
 
-        // ✅ FIX: Load user relationship and format properly
-        $transactions = Transaction::where('user_id', $user->id)
+        // ==========================================================
+        //  TRANSACTIONS (USING account_id)
+        // ==========================================================
+        $transactions = Transaction::where('account_id', $accountId)
             ->where('kind', 'payment')
-            ->with('user') // ✅ ADD THIS
             ->orderBy('created_at', 'desc')
             ->take(5)
             ->get()
@@ -58,18 +65,15 @@ class StudentDashboardController extends Controller
                     'paid_at' => $txn->paid_at?->toISOString(),
                     'created_at' => $txn->created_at->toISOString(),
                     'meta' => $txn->meta,
-                    'user' => $txn->user ? [
-                        'id' => $txn->user->id,
-                        'name' => $txn->user->name,
-                        'email' => $txn->user->email,
-                    ] : null,
                 ];
             });
 
-        // Get notifications
-        $notifications = Notification::where(function ($q) use ($user) {
-                $q->where('target_role', $user->role)
-                ->orWhere('target_role', 'all');
+        // ==========================================================
+        //  NOTIFICATIONS
+        // ==========================================================
+        $notifications = Notification::where(function ($query) use ($user) {
+                $query->where('target_role', $user->role)
+                      ->orWhere('target_role', 'all');
             })
             ->orderByDesc('start_date')
             ->take(5)
@@ -85,16 +89,19 @@ class StudentDashboardController extends Controller
                 ];
             });
 
+        // ==========================================================
+        //  RETURN TO FRONTEND
+        // ==========================================================
         return Inertia::render('Student/Dashboard', [
             'account' => [
-                'id' => $user->account->id,
-                'balance' => (float) $user->account->balance,
+                'account_id' => $accountId,
+                'balance' => (float) $user->account->balance ?? 0,
                 'created_at' => $user->account->created_at?->toISOString(),
                 'updated_at' => $user->account->updated_at?->toISOString(),
             ],
             'paymentTerms' => $paymentTerms,
             'notifications' => $notifications,
-            'recentTransactions' => $transactions, // ✅ NOW PROPERLY FORMATTED
+            'recentTransactions' => $transactions,
             'stats' => [
                 'total_scheduled' => (float) $totalScheduled,
                 'total_paid' => (float) $totalPaid,

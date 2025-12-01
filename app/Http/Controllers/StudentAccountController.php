@@ -13,34 +13,48 @@ class StudentAccountController extends Controller
     public function index()
     {
         $user = Auth::user();
-        
+
+        // Ensure the student has an account
         if (!$user->account) {
             $user->account()->create(['balance' => 0]);
         }
 
-        // Get latest assessment
-        $assessment = StudentAssessment::where('user_id', $user->id)
+        $accountId = $user->student->account_id;
+
+        // ==========================================================
+        //  LATEST ASSESSMENT
+        // ==========================================================
+        $assessment = StudentAssessment::where('account_id', $accountId)
             ->with('curriculum.program')
             ->where('status', 'active')
             ->latest()
             ->first();
 
-        // Get payment terms
-        $paymentTerms = StudentPaymentTerm::where('user_id', $user->id)
+        // ==========================================================
+        //  PAYMENT TERMS
+        // ==========================================================
+        $paymentTerms = StudentPaymentTerm::where('account_id', $accountId)
             ->orderBy('term_order')
             ->get();
 
-        // Get payment history (actual transactions)
-        $payments = Transaction::where('user_id', $user->id)
+        // ==========================================================
+        //  PAYMENT HISTORY / TRANSACTIONS
+        // ==========================================================
+        $payments = Transaction::where('account_id', $accountId)
             ->where('kind', 'payment')
             ->orderBy('paid_at', 'desc')
             ->get();
 
-        // Calculate stats
+        // ==========================================================
+        //  CALCULATE STATS
+        // ==========================================================
         $totalScheduled = $paymentTerms->sum('amount');
         $totalPaid = $paymentTerms->sum('paid_amount');
         $remainingDue = $totalScheduled - $totalPaid;
 
+        // ==========================================================
+        //  RETURN TO FRONTEND
+        // ==========================================================
         return Inertia::render('Student/AccountOverview', [
             'student' => [
                 'id' => $user->id,
@@ -50,7 +64,12 @@ class StudentAccountController extends Controller
                 'course' => $user->course,
                 'year_level' => $user->year_level,
             ],
-            'account' => $user->account,
+            'account' => [
+                'account_id' => $accountId,
+                'balance' => (float) $user->account->balance,
+                'created_at' => $user->account->created_at?->toISOString(),
+                'updated_at' => $user->account->updated_at?->toISOString(),
+            ],
             'assessment' => $assessment,
             'paymentTerms' => $paymentTerms->map(fn($term) => [
                 'id' => $term->id,
