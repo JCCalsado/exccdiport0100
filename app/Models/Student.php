@@ -32,19 +32,47 @@ class Student extends Model
         'total_balance' => 'decimal:2',
     ];
 
-    // ✅ Boot method to auto-generate account_id
+    // ✅ NEW: Boot method to auto-generate account_id
     protected static function boot()
     {
         parent::boot();
 
         static::creating(function ($student) {
             if (empty($student->account_id)) {
-                $student->account_id = self::generateUniqueAccountId();
+                $student->account_id = self::generateAccountId();
             }
         });
     }
 
-    // ✅ Relationships using account_id
+    // ✅ NEW: Generate unique account_id
+    public static function generateAccountId(): string
+    {
+        return DB::transaction(function () {
+            do {
+                $date = now()->format('Ymd');
+                $random = str_pad(rand(0, 9999), 4, '0', STR_PAD_LEFT);
+                $accountId = "ACC-{$date}-{$random}";
+            } while (self::where('account_id', $accountId)->lockForUpdate()->exists());
+
+            return $accountId;
+        });
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function payments(): HasMany
+    {
+        return $this->hasMany(Payment::class, 'account_id', 'account_id');
+    }
+
+    public function transactions(): HasMany
+    {
+        return $this->hasMany(Transaction::class, 'account_id', 'account_id');
+    }
+
     public function paymentTerms(): HasMany
     {
         return $this->hasMany(StudentPaymentTerm::class, 'account_id', 'account_id');
@@ -55,99 +83,14 @@ class Student extends Model
         return $this->hasMany(StudentAssessment::class, 'account_id', 'account_id');
     }
 
-    public function transactions(): HasMany
-    {
-        return $this->hasMany(Transaction::class, 'account_id', 'account_id');
-    }
-
-    public function studentPayments(): HasMany
-    {
-        return $this->hasMany(Payment::class, 'account_id', 'account_id');
-    }
-
-    // ✅ Keep existing relationships
-    public function user(): BelongsTo
-    {
-        return $this->belongsTo(User::class);
-    }
-
-    public function payments(): HasMany
-    {
-        return $this->hasMany(Payment::class);
-    }
-
-    public function account(): HasOne
-    {
-        return $this->hasOne(Account::class, 'user_id', 'user_id');
-    }
-
-    // ✅ Accessors
-    public function getFormattedAccountIdAttribute(): string
-    {
-        return strtoupper($this->account_id);
-    }
-
     public function getRemainingBalanceAttribute()
     {
         $totalPaid = $this->payments()->sum('amount');
         return $this->total_balance - $totalPaid;
     }
 
-    // ✅ Generate unique account_id
-    public static function generateUniqueAccountId(): string
+    public function account(): HasOne
     {
-        return DB::transaction(function () {
-            $date = date('Ymd');
-            $attempts = 0;
-            $maxAttempts = 100;
-
-            do {
-                $sequential = str_pad(DB::table('students')->whereDate('created_at', today())->count() + 1, 4, '0', STR_PAD_LEFT);
-                $accountId = "ACC-{$date}-{$sequential}";
-                
-                $exists = self::where('account_id', $accountId)->lockForUpdate()->exists();
-                
-                $attempts++;
-                
-                if ($attempts > $maxAttempts) {
-                    // Fallback: use unique timestamp-based ID
-                    $accountId = "ACC-{$date}-" . strtoupper(substr(uniqid(), -4));
-                    break;
-                }
-            } while ($exists);
-
-            return $accountId;
-        });
-    }
-
-    // ✅ Validation rules
-    public static function validationRules($id = null): array
-    {
-        return [
-            'account_id' => [
-                'required',
-                'string',
-                'max:50',
-                'unique:students,account_id,' . $id,
-                'regex:/^ACC-\d{8}-[A-Z0-9]{4}$/',
-            ],
-            'student_id' => 'nullable|string|unique:students,student_id,' . $id,
-            'user_id' => 'required|exists:users,id',
-            'email' => 'required|email|unique:students,email,' . $id,
-            'course' => 'required|string|max:255',
-            'year_level' => 'required|string|in:1st Year,2nd Year,3rd Year,4th Year',
-            'status' => 'required|in:enrolled,graduated,inactive',
-        ];
-    }
-
-    // ✅ Scopes
-    public function scopeByAccountId($query, string $accountId)
-    {
-        return $query->where('account_id', $accountId);
-    }
-
-    public function scopeActive($query)
-    {
-        return $query->where('status', 'enrolled');
+        return $this->hasOne(Account::class, 'user_id', 'user_id');
     }
 }

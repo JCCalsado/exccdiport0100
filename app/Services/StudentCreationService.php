@@ -25,6 +25,7 @@ class StudentCreationService
     {
         return DB::transaction(function () use ($data) {
             $studentId = $data['student_id'] ?? $this->generateUniqueStudentId();
+            $accountId = $this->generateAccountId();
 
             $courseName = $this->determineCourseName($data);
 
@@ -46,6 +47,7 @@ class StudentCreationService
 
             Student::create([
                 'user_id' => $user->id,
+                'account_id' => $accountId,
                 'student_id' => $studentId,
                 'last_name' => $data['last_name'],
                 'first_name' => $data['first_name'],
@@ -63,10 +65,50 @@ class StudentCreationService
             $user->account()->create(['balance' => 0]);
 
             if (($data['auto_generate_assessment'] ?? false) && isset($data['program_id'])) {
-                $this->generateOBEAssessment($user, $data);
+                $this->generateOBEAssessment($user, $data, $accountId);
             }
 
             return $user->fresh(['student', 'account']);
+        });
+    }
+
+    /**
+     * Generate unique account_id in format ACC-YYYYMMDD-XXXX
+     */
+    protected function generateAccountId(): string
+    {
+        return DB::transaction(function () {
+            $date = now()->format('Ymd');
+            $prefix = "ACC-{$date}-";
+            
+            $lastStudent = Student::where('account_id', 'like', "{$prefix}%")
+                ->lockForUpdate()
+                ->orderByRaw('CAST(SUBSTRING(account_id, 14) AS UNSIGNED) DESC')
+                ->first();
+
+            if ($lastStudent) {
+                $lastNumber = intval(substr($lastStudent->account_id, -4));
+                $newNumber = str_pad($lastNumber + 1, 4, '0', STR_PAD_LEFT);
+            } else {
+                $newNumber = '0001';
+            }
+
+            $newAccountId = "{$prefix}{$newNumber}";
+            
+            // Ensure uniqueness
+            $attempts = 0;
+            while (Student::where('account_id', $newAccountId)->exists() && $attempts < 10) {
+                $lastNumber = intval($newNumber);
+                $newNumber = str_pad($lastNumber + 1, 4, '0', STR_PAD_LEFT);
+                $newAccountId = "{$prefix}{$newNumber}";
+                $attempts++;
+            }
+            
+            if ($attempts >= 10) {
+                throw new \Exception('Unable to generate unique account ID after multiple attempts.');
+            }
+            
+            return $newAccountId;
         });
     }
 
@@ -115,7 +157,7 @@ class StudentCreationService
         return $data['course'] ?? 'Unknown';
     }
 
-    protected function generateOBEAssessment(User $user, array $data): void
+    protected function generateOBEAssessment(User $user, array $data, string $accountId): void
     {
         try {
             $curriculum = $this->curriculumService->getCurriculumForTerm(
@@ -126,14 +168,16 @@ class StudentCreationService
             );
 
             if ($curriculum) {
-                $this->curriculumService->generateAssessment($user, $curriculum);
+                $this->curriculumService->generateAssessment($user, $curriculum, $accountId);
                 \Log::info('OBE assessment generated for student', [
                     'user_id' => $user->id,
+                    'account_id' => $accountId,
                     'curriculum_id' => $curriculum->id,
                 ]);
             } else {
                 \Log::warning('No curriculum found for student', [
                     'user_id' => $user->id,
+                    'account_id' => $accountId,
                     'program_id' => $data['program_id'],
                     'year_level' => $data['year_level'],
                     'semester' => $data['semester'] ?? '1st Sem',
@@ -142,6 +186,7 @@ class StudentCreationService
         } catch (\Exception $e) {
             \Log::error('Failed to generate OBE assessment', [
                 'user_id' => $user->id,
+                'account_id' => $accountId,
                 'error' => $e->getMessage(),
             ]);
         }

@@ -9,9 +9,19 @@ use App\Services\AccountService;
 class Transaction extends Model
 {
     protected $fillable = [
-        'user_id', 'account_id', 'fee_id', 'reference', 
-        'payment_channel', 'kind', 'type', 'amount', 'status', 
-        'paid_at', 'meta'
+        'user_id',           // Keep for backward compatibility
+        'account_id',        // ✅ NEW - Primary identifier
+        'fee_id', 
+        'reference', 
+        'payment_channel', 
+        'kind', 
+        'type', 
+        'year',
+        'semester',
+        'amount', 
+        'status', 
+        'paid_at', 
+        'meta'
     ];
 
     protected $casts = [
@@ -20,14 +30,16 @@ class Transaction extends Model
         'amount' => 'decimal:2',
     ];
 
+    // ✅ NEW: Relationship via account_id
+    public function student(): BelongsTo
+    {
+        return $this->belongsTo(Student::class, 'account_id', 'account_id');
+    }
+
+    // Keep user relationship for backward compatibility
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
-    }
-    
-    public function account(): BelongsTo
-    {
-        return $this->belongsTo(Account::class);
     }
 
     public function fee(): BelongsTo
@@ -35,12 +47,16 @@ class Transaction extends Model
         return $this->belongsTo(Fee::class);
     }
 
+    // ✅ NEW: Scope by account_id
+    public function scopeByAccountId($query, string $accountId)
+    {
+        return $query->where('account_id', $accountId);
+    }
+
     protected static function booted()
     {
         static::saved(function ($transaction) {
-            // ✅ Only recalculate if amount or status changed
             if ($transaction->wasChanged(['amount', 'status', 'kind'])) {
-                // ✅ Defer recalculation to end of request
                 app()->terminating(function () use ($transaction) {
                     if ($transaction->user) {
                         AccountService::recalculate($transaction->user);
@@ -48,17 +64,5 @@ class Transaction extends Model
                 });
             }
         });
-    }
-
-    public function download()
-    {
-        $transactions = \App\Models\Transaction::with('fee')->get();
-
-        // Use a PDF generator like DomPDF
-        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.transactions', [
-            'transactions' => $transactions
-        ]);
-
-        return $pdf->download('transactions.pdf');
     }
 }

@@ -7,6 +7,7 @@ use Inertia\Inertia;
 use App\Models\Notification;
 use App\Models\Transaction;
 use App\Models\StudentPaymentTerm;
+use App\Models\Student;
 
 class StudentDashboardController extends Controller
 {
@@ -14,18 +15,21 @@ class StudentDashboardController extends Controller
     {
         $user = $request->user();
 
-        // Ensure the student exists
-        if (!$user->student) {
-            abort(404, 'Student profile not found.');
+        if (!$user->account) {
+            $user->account()->create(['balance' => 0]);
         }
 
-        // Use the student's ACCOUNT ID
-        $accountId = $user->student->account_id;
+        // ✅ Get student by user_id, then use account_id
+        $student = Student::where('user_id', $user->id)->first();
+        
+        if (!$student) {
+            return back()->withErrors(['error' => 'Student profile not found.']);
+        }
 
-        // ==========================================================
-        //  STUDENT PAYMENT TERMS (NOW USING account_id)
-        // ==========================================================
-        $paymentTerms = StudentPaymentTerm::where('account_id', $accountId)
+        $accountId = $student->account_id;
+
+        // ✅ Get payment terms by account_id
+        $paymentTerms = StudentPaymentTerm::byAccountId($accountId)
             ->orderBy('term_order')
             ->get()
             ->map(function ($term) {
@@ -45,11 +49,10 @@ class StudentDashboardController extends Controller
         $totalPaid = $paymentTerms->sum('paid_amount');
         $remainingDue = $totalScheduled - $totalPaid;
 
-        // ==========================================================
-        //  TRANSACTIONS (USING account_id)
-        // ==========================================================
-        $transactions = Transaction::where('account_id', $accountId)
+        // ✅ Get transactions by account_id
+        $transactions = Transaction::byAccountId($accountId)
             ->where('kind', 'payment')
+            ->with('user')
             ->orderBy('created_at', 'desc')
             ->take(5)
             ->get()
@@ -65,15 +68,18 @@ class StudentDashboardController extends Controller
                     'paid_at' => $txn->paid_at?->toISOString(),
                     'created_at' => $txn->created_at->toISOString(),
                     'meta' => $txn->meta,
+                    'user' => $txn->user ? [
+                        'id' => $txn->user->id,
+                        'name' => $txn->user->name,
+                        'email' => $txn->user->email,
+                    ] : null,
                 ];
             });
 
-        // ==========================================================
-        //  NOTIFICATIONS
-        // ==========================================================
-        $notifications = Notification::where(function ($query) use ($user) {
-                $query->where('target_role', $user->role)
-                      ->orWhere('target_role', 'all');
+        // Get notifications
+        $notifications = Notification::where(function ($q) use ($user) {
+                $q->where('target_role', $user->role)
+                ->orWhere('target_role', 'all');
             })
             ->orderByDesc('start_date')
             ->take(5)
@@ -89,13 +95,11 @@ class StudentDashboardController extends Controller
                 ];
             });
 
-        // ==========================================================
-        //  RETURN TO FRONTEND
-        // ==========================================================
         return Inertia::render('Student/Dashboard', [
+            'account_id' => $accountId, // ✅ Pass account_id to frontend
             'account' => [
-                'account_id' => $accountId,
-                'balance' => (float) $user->account->balance ?? 0,
+                'id' => $user->account->id,
+                'balance' => (float) $user->account->balance,
                 'created_at' => $user->account->created_at?->toISOString(),
                 'updated_at' => $user->account->updated_at?->toISOString(),
             ],
