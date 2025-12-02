@@ -8,19 +8,7 @@ const name = page.props.name;
 const quote = page.props.quote;
 
 const backgrounds = [
-  "/images/bg1.jpg",
-  "/images/bg2.jpg",
-  "/images/bg3.jpg",
-  "/images/bg4.jpg",
-  "/images/bg5.jpg",
-  "/images/bg6.jpg",
-  "/images/bg7.jpg",
   "/images/bg11.jpg",
-  "/images/bg12.jpg",
-  "/images/bg13.jpg",
-  "/images/bg14.jpg",
-  "/images/bg15.jpg",
-  "/images/bg16.jpg",
 ];
 
 const currentIndex = ref(0);
