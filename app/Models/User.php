@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use App\Enums\UserRoleEnum;
+use App\Models\StudentPaymentTerm;
 
 class User extends Authenticatable
 {
@@ -74,7 +75,14 @@ class User extends Authenticatable
      */
     public function paymentTerms(): HasMany
     {
-        return $this->hasMany(StudentPaymentTerm::class);
+        return $this->hasManyThrough(
+            StudentPaymentTerm::class,
+            Student::class,
+            'user_id',      // Foreign key on students table
+            'account_id',   // Foreign key on payment_terms table
+            'id',           // Local key on users table
+            'account_id'    // Local key on students table
+        );
     }
 
     /**
@@ -118,7 +126,14 @@ class User extends Authenticatable
      */
     public function assessments(): HasMany
     {
-        return $this->hasMany(StudentAssessment::class);
+        return $this->hasManyThrough(
+            StudentAssessment::class,
+            Student::class,
+            'user_id',      // Foreign key on students table
+            'account_id',   // Foreign key on assessments table
+            'id',           // Local key on users table
+            'account_id'    // Local key on students table
+        );
     }
 
     /**
@@ -126,9 +141,14 @@ class User extends Authenticatable
      */
     public function activeAssessment(): HasOne
     {
-    return $this->hasOne(StudentAssessment::class)
-        ->where('status', 'active')
-        ->latest();
+        return $this->hasOneThrough(
+            StudentAssessment::class,
+            Student::class,
+            'user_id',
+            'account_id',
+            'id',
+            'account_id'
+        )->where('status', 'active')->latest();
     }
 
     /**
