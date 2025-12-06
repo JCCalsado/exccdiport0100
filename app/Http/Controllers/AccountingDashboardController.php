@@ -2,156 +2,139 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\User;
+use Illuminate\Http\Request;
+use Inertia\Inertia;
+use App\Models\Student;
 use App\Models\Transaction;
 use App\Models\Payment;
 use App\Models\StudentAssessment;
-use App\Models\Fee;
-use Illuminate\Http\Request;
-use Inertia\Inertia;
+use App\Models\StudentPaymentTerm;
 use Illuminate\Support\Facades\DB;
 
 class AccountingDashboardController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $currentYear = now()->year;
-        $currentSemester = now()->month >= 1 && now()->month <= 5 ? '2nd Sem' : '1st Sem';
-
-        // Existing stats
-        $stats = [
-            'total_students' => User::where('role', 'student')->count(),
-            'active_students' => User::where('role', 'student')
-                ->where('status', User::STATUS_ACTIVE)
-                ->count(),
-            'total_charges' => Transaction::where('kind', 'charge')->sum('amount'),
-            'total_payments' => Transaction::where('kind', 'payment')
-                ->where('status', 'paid')
-                ->sum('amount'),
-            'total_pending' => abs(User::where('role', 'student')
-                ->whereHas('account', function ($q) {
-                    $q->where('balance', '>', 0);
-                })
-                ->with('account')
-                ->get()
-                ->sum('account.balance')),
-            'collection_rate' => 0,
-            'active_fees' => Fee::where('is_active', true)->count(),
-            'total_fee_amount' => Fee::where('is_active', true)->sum('amount'),
-        ];
-        // Calculate collection rate
-        $totalCharges = $stats['total_charges'];
-        $totalPayments = $stats['total_payments'];
-        $stats['collection_rate'] = $totalCharges > 0 
-            ? round(($totalPayments / $totalCharges) * 100, 2) 
-            : 0;
-
-        // Students with balance
-        $studentsWithBalance = User::where('role', 'student')
-            ->whereHas('account', function ($q) {
-                $q->where('balance', '>', 0);
+        // ✅ Get overview stats using account_id
+        $totalStudents = Student::whereNotNull('account_id')->count();
+        $activeStudents = Student::whereNotNull('account_id')
+            ->where('status', 'enrolled')
+            ->count();
+        
+        // ✅ Financial stats using account_id
+        $totalOutstanding = DB::table('students')
+            ->whereNotNull('account_id')
+            ->sum('total_balance');
+        
+        $recentPayments = Payment::whereNotNull('account_id')
+            ->where('created_at', '>=', now()->subDays(30))
+            ->where('status', Payment::STATUS_COMPLETED)
+            ->sum('amount');
+        
+        // ✅ Pending charges by account_id
+        $pendingCharges = Transaction::whereNotNull('account_id')
+            ->where('kind', 'charge')
+            ->where('status', 'pending')
+            ->sum('amount');
+        
+        // ✅ Recent transactions with student info
+        $recentTransactions = Transaction::with(['student' => function($query) {
+                $query->select('id', 'account_id', 'student_id', 'first_name', 'last_name', 'middle_initial');
+            }])
+            ->whereNotNull('account_id')
+            ->latest('created_at')
+            ->take(10)
+            ->get()
+            ->map(function ($txn) {
+                return [
+                    'id' => $txn->id,
+                    'account_id' => $txn->account_id, // ✅ PRIMARY
+                    'reference' => $txn->reference,
+                    'kind' => $txn->kind,
+                    'type' => $txn->type,
+                    'amount' => (float) $txn->amount,
+                    'status' => $txn->status,
+                    'created_at' => $txn->created_at->toISOString(),
+                    'student' => $txn->student ? [
+                        'account_id' => $txn->student->account_id,
+                        'student_id' => $txn->student->student_id,
+                        'name' => $txn->student->full_name,
+                    ] : null,
+                ];
+            });
+        
+        // ✅ Students with overdue payments
+        $overdueStudents = Student::whereNotNull('account_id')
+            ->whereHas('paymentTerms', function($query) {
+                $query->where('due_date', '<', now())
+                    ->where('status', '!=', 'paid')
+                    ->whereRaw('paid_amount < amount');
             })
-            ->with(['account', 'student'])
-            ->orderBy('created_at', 'desc')
-            ->limit(10)
+            ->with(['paymentTerms' => function($query) {
+                $query->where('due_date', '<', now())
+                    ->where('status', '!=', 'paid')
+                    ->whereRaw('paid_amount < amount')
+                    ->orderBy('due_date');
+            }])
+            ->take(10)
             ->get()
-            ->map(function ($user) {
+            ->map(function ($student) {
+                $overdueTerms = $student->paymentTerms;
+                $totalOverdue = $overdueTerms->sum(fn($term) => $term->amount - $term->paid_amount);
+                
                 return [
-                    'id' => $user->id,
-                    'name' => $user->name,
-                    'email' => $user->email,
-                    'student_id' => $user->student_id,
-                    'course' => $user->course,
-                    'year_level' => $user->year_level,
-                    'balance' => abs($user->account->balance ?? 0),
+                    'account_id' => $student->account_id, // ✅ PRIMARY
+                    'student_id' => $student->student_id,
+                    'name' => $student->full_name,
+                    'course' => $student->course,
+                    'year_level' => $student->year_level,
+                    'total_overdue' => (float) $totalOverdue,
+                    'overdue_terms_count' => $overdueTerms->count(),
+                    'oldest_due_date' => $overdueTerms->first()?->due_date?->format('Y-m-d'),
                 ];
             });
-
-        // Recent payments
-        $recentPayments = Transaction::where('kind', 'payment')
-            ->where('status', 'paid')
-            ->with('user')
-            ->orderBy('paid_at', 'desc')
-            ->limit(10)
+        
+        // ✅ Recent assessments with account_id
+        $recentAssessments = StudentAssessment::with(['student' => function($query) {
+                $query->select('id', 'account_id', 'student_id', 'first_name', 'last_name', 'middle_initial');
+            }, 'curriculum.program'])
+            ->whereNotNull('account_id')
+            ->where('status', 'active')
+            ->latest('created_at')
+            ->take(5)
             ->get()
-            ->map(function ($transaction) {
+            ->map(function ($assessment) {
                 return [
-                    'id' => $transaction->id,
-                    'reference' => $transaction->reference,
-                    'student_name' => $transaction->user->name ?? 'N/A',
-                    'amount' => $transaction->amount,
-                    'status' => $transaction->status,
-                    'paid_at' => $transaction->paid_at,
-                    'created_at' => $transaction->created_at,
+                    'id' => $assessment->id,
+                    'account_id' => $assessment->account_id, // ✅ PRIMARY
+                    'assessment_number' => $assessment->assessment_number,
+                    'school_year' => $assessment->school_year,
+                    'semester' => $assessment->semester,
+                    'total_assessment' => (float) $assessment->total_assessment,
+                    'created_at' => $assessment->created_at->toISOString(),
+                    'student' => $assessment->student ? [
+                        'account_id' => $assessment->student->account_id,
+                        'student_id' => $assessment->student->student_id,
+                        'name' => $assessment->student->full_name,
+                    ] : null,
+                    'curriculum' => $assessment->curriculum ? [
+                        'program' => $assessment->curriculum->program->full_name ?? 'N/A',
+                    ] : null,
                 ];
             });
-
-        // Payment trends (last 6 months)
-        $paymentTrends = Transaction::where('kind', 'payment')
-            ->where('status', 'paid')
-            ->where('paid_at', '>=', now()->subMonths(6))
-            ->select(
-                DB::raw('DATE_FORMAT(paid_at, "%Y-%m") as month'),
-                DB::raw('SUM(amount) as total'),
-                DB::raw('COUNT(*) as count')
-            )
-            ->groupBy('month')
-            ->orderBy('month', 'asc')
-            ->get();
-
-        // Payment by method
-        $paymentByMethod = Transaction::where('kind', 'payment')
-            ->where('status', 'paid')
-            ->whereNotNull('payment_channel')
-            ->select(
-                'payment_channel as method',
-                DB::raw('COUNT(*) as count'),
-                DB::raw('SUM(amount) as total')
-            )
-            ->groupBy('payment_channel')
-            ->orderBy('total', 'desc')
-            ->get();
-
-        // Students by year level
-        $studentsByYearLevel = User::where('role', 'student')
-            ->where('status', User::STATUS_ACTIVE)
-            ->select('year_level', DB::raw('COUNT(*) as count'))
-            ->groupBy('year_level')
-            ->orderBy('year_level')
-            ->get();
-
-        // NEW: Student Fee Stats
-        $studentFeeStats = [
-            'total_assessments' => StudentAssessment::where('status', 'active')->count(),
-            'total_assessment_amount' => StudentAssessment::where('status', 'active')
-                ->sum('total_assessment'),
-            'pending_assessments' => abs(User::where('role', 'student')
-                ->whereHas('account', function ($q) {
-                    $q->where('balance', '>', 0);
-                })
-                ->with('account')
-                ->get()
-                ->sum('account.balance')),
-            'recent_assessments' => StudentAssessment::where('created_at', '>=', now()->subDays(30))
-                ->count(),
-            'recent_payments_amount' => Transaction::where('kind', 'payment')
-                ->where('status', 'paid')
-                ->where('paid_at', '>=', now()->subDays(30))
-                ->sum('amount'),
-        ];
-
+        
         return Inertia::render('Accounting/Dashboard', [
-            'stats' => $stats,
-            'studentsWithBalance' => $studentsWithBalance,
-            'recentPayments' => $recentPayments,
-            'paymentTrends' => $paymentTrends,
-            'paymentByMethod' => $paymentByMethod,
-            'studentsByYearLevel' => $studentsByYearLevel,
-            'currentTerm' => [
-                'year' => $currentYear,
-                'semester' => $currentSemester,
+            'stats' => [
+                'total_students' => $totalStudents,
+                'active_students' => $activeStudents,
+                'total_outstanding' => (float) $totalOutstanding,
+                'recent_payments_30d' => (float) $recentPayments,
+                'pending_charges' => (float) $pendingCharges,
+                'overdue_count' => $overdueStudents->count(),
             ],
-            'studentFeeStats' => $studentFeeStats, // NEW: Add student fee stats
+            'recentTransactions' => $recentTransactions,
+            'overdueStudents' => $overdueStudents,
+            'recentAssessments' => $recentAssessments,
         ]);
     }
 }
