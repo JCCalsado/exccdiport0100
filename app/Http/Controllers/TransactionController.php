@@ -4,13 +4,13 @@ namespace App\Http\Controllers;
 
 use Barryvdh\DomPDF\Facade\Pdf;
 use App\Models\Transaction;
-use App\Models\Fee;
-use App\Models\User;
+use App\Models\Student;
+use App\Models\StudentPaymentTerm;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
-use App\Models\StudentPaymentTerm;
+use Illuminate\Support\Facades\Log;
 
 class TransactionController extends Controller
 {
@@ -20,95 +20,113 @@ class TransactionController extends Controller
     
         // ✅ Get role value (handles both string and enum)
         $roleValue = is_object($user->role) ? $user->role->value : $user->role;
-        $adminRoles = ['admin', 'accounting']; // Remove 'super_admin' - doesn't exist
+        $adminRoles = ['admin', 'accounting'];
         
         if (in_array($roleValue, $adminRoles)) {
-            $transactions = Transaction::with('user')
+            // ✅ Admin/Accounting: Get all transactions
+            $transactions = Transaction::with(['student', 'fee'])
                 ->orderByDesc('created_at')
                 ->get()
                 ->groupBy(fn($txn) => "{$txn->year} {$txn->semester}");
         } else {
-            $transactions = $user->transactions()
-                ->with('user')
+            // ✅ Student: Get only their transactions by account_id
+            $student = Student::where('user_id', $user->id)->first();
+            
+            if (!$student || !$student->account_id) {
+                return back()->withErrors([
+                    'error' => 'Student profile not found.'
+                ]);
+            }
+
+            $transactions = Transaction::byAccountId($student->account_id)
+                ->with('fee')
                 ->orderByDesc('created_at')
                 ->get()
                 ->groupBy(fn($txn) => "{$txn->year} {$txn->semester}");
         }
 
         return Inertia::render('Transactions/Index', [
-            'auth'               => ['user' => $user],
+            'auth' => ['user' => $user],
             'transactionsByTerm' => $transactions,
-            'account'            => $user->account,
-            'currentTerm'        => $this->getCurrentTerm(),
+            'account' => $user->account,
+            'currentTerm' => $this->getCurrentTerm(),
         ]);
     }
 
     private function getCurrentTerm(): string
     {
-        $year  = now()->year;
+        $year = now()->year;
         $month = now()->month;
 
-        if ($month >= 6 && $month <= 10) {
-            $semester = '1st Sem';
-        } elseif ($month >= 11 || $month <= 3) {
-            $semester = '2nd Sem';
-        } else {
-            $semester = 'Summer';
-        }
+        $semester = match(true) {
+            $month >= 6 && $month <= 10 => '1st Sem',
+            $month >= 11 || $month <= 3 => '2nd Sem',
+            default => 'Summer',
+        };
 
         return "{$year} {$semester}";
     }
 
-    public function create()
-    {
-        return Inertia::render('Transactions/Create', [
-            'users' => User::select('id', 'name', 'email')->get(),
-        ]);
-    }
-
-    public function store(Request $request)
-    {
-        // FIX: role is string → remove ->value
-        if (!in_array($request->user()->role, ['super_admin', 'admin', 'accounting'])) {
-            abort(403, 'Unauthorized action.');
-        }
-
-        $data = $request->validate([
-            'user_id'         => 'required|exists:users,id',
-            'amount'          => 'required|numeric|min:0.01',
-            'type'            => 'required|in:charge,payment',
-            'payment_channel' => 'nullable|string',
-        ]);
-
-        $transaction = Transaction::create([
-            'user_id'         => $data['user_id'],
-            'reference'       => 'SYS-' . Str::upper(Str::random(8)),
-            'amount'          => $data['amount'],
-            'type'            => $data['type'],
-            'kind'            => $data['type'], // normalize
-            'status'          => $data['type'] === 'payment' ? 'paid' : 'pending',
-            'payment_channel' => $data['payment_channel'],
-        ]);
-
-        $this->recalculateAccount($transaction->user);
-
-        return redirect()
-            ->route('transactions.index')
-            ->with('success', 'Transaction created successfully!');
-    }
-
     public function show(Transaction $transaction)
     {
+        // ✅ Load relationships using account_id
+        $transaction->load(['student', 'fee']);
+
+        // ✅ Authorization check
+        $user = request()->user();
+        $roleValue = is_object($user->role) ? $user->role->value : $user->role;
+        
+        if (!in_array($roleValue, ['admin', 'accounting'])) {
+            $student = Student::where('user_id', $user->id)->first();
+            
+            if (!$student || $transaction->account_id !== $student->account_id) {
+                abort(403, 'Unauthorized access to this transaction.');
+            }
+        }
+
         return Inertia::render('Transactions/Show', [
-            'transaction' => $transaction->load('user'),
+            'transaction' => [
+                'id' => $transaction->id,
+                'account_id' => $transaction->account_id,
+                'reference' => $transaction->reference,
+                'kind' => $transaction->kind,
+                'type' => $transaction->type,
+                'amount' => (float) $transaction->amount,
+                'status' => $transaction->status,
+                'payment_channel' => $transaction->payment_channel,
+                'paid_at' => $transaction->paid_at?->toISOString(),
+                'created_at' => $transaction->created_at->toISOString(),
+                'meta' => $transaction->meta,
+                'student' => $transaction->student ? [
+                    'id' => $transaction->student->id,
+                    'account_id' => $transaction->student->account_id,
+                    'name' => $transaction->student->full_name,
+                    'student_id' => $transaction->student->student_id,
+                ] : null,
+                'fee' => $transaction->fee ? [
+                    'id' => $transaction->fee->id,
+                    'name' => $transaction->fee->name,
+                    'category' => $transaction->fee->category,
+                ] : null,
+            ],
         ]);
     }
 
+    /**
+     * ✅ Pay Now - Student payment submission
+     */
     public function payNow(Request $request)
     {
         $user = $request->user();
+        $student = Student::where('user_id', $user->id)->firstOrFail();
 
-        $data = $request->validate([
+        if (!$student->account_id) {
+            return back()->withErrors([
+                'error' => 'Account ID not found. Please contact administration.'
+            ]);
+        }
+
+        $validated = $request->validate([
             'amount' => 'required|numeric|min:0.01',
             'payment_method' => 'required|string',
             'paid_at' => 'nullable|date',
@@ -117,54 +135,47 @@ class TransactionController extends Controller
             'term_id' => 'nullable|exists:student_payment_terms,id',
         ]);
 
-        // Preview updates to payment terms (actual persistence happens inside DB transaction below)
-        if (isset($data['term_id'])) {
-            $term = StudentPaymentTerm::findOrFail($data['term_id']);
-            $term->paid_amount += $data['amount'];
-            // ✅ This part works (preview)
-        } else {
-            // Prepare earliest unpaid terms for allocation (actual updates happen inside transaction)
-            $terms = StudentPaymentTerm::where('user_id', $user->id)
-                ->unpaid()
-                ->orderBy('term_order')
-                ->get();
-            // Updates terms will be applied in the transactional block below
-        }
-
         DB::beginTransaction();
         try {
-            // Create payment transaction
+            // ✅ Create payment transaction using account_id
             $transaction = Transaction::create([
-                'user_id' => $user->id,
+                'account_id' => $student->account_id, // ✅ PRIMARY FIELD
+                'user_id' => $user->id, // Keep for compatibility
                 'reference' => 'PAY-' . Str::upper(Str::random(8)),
                 'kind' => 'payment',
                 'type' => 'Payment',
-                'amount' => $data['amount'],
+                'amount' => $validated['amount'],
                 'status' => 'paid',
-                'payment_channel' => $data['payment_method'],
-                'paid_at' => $data['paid_at'],
+                'payment_channel' => $validated['payment_method'],
+                'paid_at' => $validated['paid_at'] ?? now(),
                 'meta' => [
-                    'reference_number' => $data['reference_number'] ?: null,
-                    'description' => $data['description'],
-                    'term_id' => $data['term_id'] ?? null,
+                    'reference_number' => $validated['reference_number'] ?? null,
+                    'description' => $validated['description'] ?? 'Student payment',
+                    'term_id' => $validated['term_id'] ?? null,
                 ],
             ]);
 
-            // Update payment term(s)
-            if (isset($data['term_id'])) {
-                // Apply to specific term
-                $term = StudentPaymentTerm::findOrFail($data['term_id']);
-                $term->paid_amount += $data['amount'];
+            // ✅ Update payment term(s) using account_id
+            if (isset($validated['term_id'])) {
+                $term = StudentPaymentTerm::findOrFail($validated['term_id']);
+                
+                if ($term->account_id !== $student->account_id) {
+                    throw new \Exception('Payment term does not belong to this student.');
+                }
+                
+                $term->paid_amount += $validated['amount'];
+                
                 if ($term->paid_amount >= $term->amount) {
                     $term->status = 'paid';
                 } elseif ($term->paid_amount > 0) {
                     $term->status = 'partial';
                 }
+                
                 $term->save();
             } else {
-                // Apply to earliest unpaid term(s)
-                $remainingAmount = $data['amount'];
-                $terms = StudentPaymentTerm::where('user_id', $user->id)
+                // Apply to earliest unpaid terms
+                $remainingAmount = $validated['amount'];
+                $terms = StudentPaymentTerm::byAccountId($student->account_id)
                     ->unpaid()
                     ->orderBy('term_order')
                     ->get();
@@ -176,18 +187,28 @@ class TransactionController extends Controller
                     $paymentForThisTerm = min($remainingAmount, $termBalance);
 
                     $term->paid_amount += $paymentForThisTerm;
+                    
                     if ($term->paid_amount >= $term->amount) {
                         $term->status = 'paid';
                     } else {
                         $term->status = 'partial';
                     }
+                    
                     $term->save();
-
                     $remainingAmount -= $paymentForThisTerm;
                 }
             }
 
+            // ✅ Recalculate account balance
+            \App\Services\AccountService::recalculate($user);
+
             DB::commit();
+
+            Log::info('Payment recorded successfully', [
+                'account_id' => $student->account_id,
+                'amount' => $validated['amount'],
+                'transaction_id' => $transaction->id,
+            ]);
 
             return redirect()
                 ->route('student.account')
@@ -195,80 +216,49 @@ class TransactionController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            \Log::error('Payment recording failed', [
+            
+            Log::error('Payment recording failed', [
+                'account_id' => $student->account_id,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
             
             return back()->withErrors([
-                'error' => 'Failed to record payment. Please try again.'
+                'error' => 'Failed to record payment: ' . $e->getMessage()
             ]);
         }
     }
 
-    protected function recalculateAccount($user): void
-    {
-        $charges  = $user->transactions()->where('kind', 'charge')->sum('amount');
-        $payments = $user->transactions()->where('kind', 'payment')->where('status', 'paid')->sum('amount');
-        $balance  = $charges - $payments;
-
-        $account = $user->account ?? $user->account()->create();
-        $account->update(['balance' => $balance]);
-    }
-
-    protected function checkAndPromoteStudent($student)
-    {
-        if (!$student || !$student->user) {
-            return;
-        }
-
-        $account = $student->user->account;
-
-        if ($account && $account->balance <= 0) {
-            $this->promoteYearLevel($student);
-            $this->assignNextPayables($student);
-        }
-    }
-
-    protected function promoteYearLevel($student)
-    {
-        $levels = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
-
-        $index = array_search($student->year_level, $levels);
-
-        if ($index !== false && $index < count($levels) - 1) {
-            $student->year_level = $levels[$index + 1];
-            $student->save();
-        }
-    }
-
-    protected function assignNextPayables($student)
-    {
-        $fees = Fee::where('year_level', $student->year_level)
-            ->where('semester', '1st Sem')
-            ->get();
-
-        foreach ($fees as $fee) {
-            $student->user->transactions()->create([
-                'reference' => 'FEE-' . strtoupper(Str::slug($fee->name)) . '-' . $student->id,
-                'kind'      => 'charge',
-                'type'      => $fee->name,
-                'amount'    => $fee->amount,
-                'status'    => 'pending',
-                'meta'      => ['description' => $fee->name],
-            ]);
-        }
-    }
-
+    /**
+     * Download transactions PDF
+     */
     public function download()
     {
-        $transactions = Transaction::with('fee')
-            ->orderBy('created_at', 'desc')
-            ->get();
+        $user = request()->user();
+        $roleValue = is_object($user->role) ? $user->role->value : $user->role;
+
+        if (in_array($roleValue, ['admin', 'accounting'])) {
+            $transactions = Transaction::with(['student', 'fee'])
+                ->orderBy('created_at', 'desc')
+                ->get();
+        } else {
+            $student = Student::where('user_id', $user->id)->first();
+            
+            if (!$student) {
+                return back()->withErrors(['error' => 'Student profile not found.']);
+            }
+
+            $transactions = Transaction::byAccountId($student->account_id)
+                ->with('fee')
+                ->orderBy('created_at', 'desc')
+                ->get();
+        }
 
         $pdf = Pdf::loadView('pdf.transactions', [
-            'transactions' => $transactions
+            'transactions' => $transactions,
+            'user' => $user,
         ]);
 
-        return $pdf->download('transactions.pdf');
+        return $pdf->download('transactions-' . now()->format('Y-m-d') . '.pdf');
     }
 }

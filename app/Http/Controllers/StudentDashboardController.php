@@ -15,15 +15,18 @@ class StudentDashboardController extends Controller
     {
         $user = $request->user();
 
+        // ✅ Ensure user has an account
         if (!$user->account) {
             $user->account()->create(['balance' => 0]);
         }
 
-        // ✅ Get student by user_id, then use account_id
+        // ✅ Get student by user_id, then use account_id for everything
         $student = Student::where('user_id', $user->id)->first();
         
-        if (!$student) {
-            return back()->withErrors(['error' => 'Student profile not found.']);
+        if (!$student || !$student->account_id) {
+            return back()->withErrors([
+                'error' => 'Student profile not found or account_id missing. Please contact administration.'
+            ]);
         }
 
         $accountId = $student->account_id;
@@ -36,12 +39,13 @@ class StudentDashboardController extends Controller
                 return [
                     'id' => $term->id,
                     'term_name' => $term->term_name,
+                    'term_order' => $term->term_order,
                     'amount' => (float) $term->amount,
                     'paid_amount' => (float) $term->paid_amount,
                     'remaining_balance' => (float) $term->remaining_balance,
                     'due_date' => $term->due_date?->format('Y-m-d'),
                     'status' => $term->status,
-                    'is_overdue' => $term->due_date && $term->due_date->isPast() && !$term->isFullyPaid(),
+                    'is_overdue' => $term->isOverdue(),
                 ];
             });
 
@@ -49,10 +53,9 @@ class StudentDashboardController extends Controller
         $totalPaid = $paymentTerms->sum('paid_amount');
         $remainingDue = $totalScheduled - $totalPaid;
 
-        // ✅ Get transactions by account_id
-        $transactions = Transaction::byAccountId($accountId)
-            ->where('kind', 'payment')
-            ->with('user')
+        // ✅ Get recent transactions by account_id
+        $recentTransactions = Transaction::byAccountId($accountId)
+            ->with('fee')
             ->orderBy('created_at', 'desc')
             ->take(5)
             ->get()
@@ -68,10 +71,10 @@ class StudentDashboardController extends Controller
                     'paid_at' => $txn->paid_at?->toISOString(),
                     'created_at' => $txn->created_at->toISOString(),
                     'meta' => $txn->meta,
-                    'user' => $txn->user ? [
-                        'id' => $txn->user->id,
-                        'name' => $txn->user->name,
-                        'email' => $txn->user->email,
+                    'fee' => $txn->fee ? [
+                        'id' => $txn->fee->id,
+                        'name' => $txn->fee->name,
+                        'category' => $txn->fee->category,
                     ] : null,
                 ];
             });
@@ -79,7 +82,7 @@ class StudentDashboardController extends Controller
         // Get notifications
         $notifications = Notification::where(function ($q) use ($user) {
                 $q->where('target_role', $user->role)
-                ->orWhere('target_role', 'all');
+                  ->orWhere('target_role', 'all');
             })
             ->orderByDesc('start_date')
             ->take(5)
@@ -97,6 +100,16 @@ class StudentDashboardController extends Controller
 
         return Inertia::render('Student/Dashboard', [
             'account_id' => $accountId, // ✅ Pass account_id to frontend
+            'student' => [
+                'id' => $student->id,
+                'account_id' => $accountId, // ✅ Include in student data
+                'student_id' => $student->student_id,
+                'name' => $student->full_name,
+                'email' => $student->email,
+                'course' => $student->course,
+                'year_level' => $student->year_level,
+                'status' => $student->status,
+            ],
             'account' => [
                 'id' => $user->account->id,
                 'balance' => (float) $user->account->balance,
@@ -105,7 +118,7 @@ class StudentDashboardController extends Controller
             ],
             'paymentTerms' => $paymentTerms,
             'notifications' => $notifications,
-            'recentTransactions' => $transactions,
+            'recentTransactions' => $recentTransactions,
             'stats' => [
                 'total_scheduled' => (float) $totalScheduled,
                 'total_paid' => (float) $totalPaid,
