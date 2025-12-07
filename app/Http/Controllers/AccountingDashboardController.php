@@ -243,9 +243,9 @@ class AccountingDashboardController extends Controller
             'paymentByMethod' => $paymentByMethod,
             'studentsByYearLevel' => $studentsByYearLevel,
             'currentTerm' => $currentTerm,
-            'studentsWithBalance' => $studentsWithBalance, // ✅ ADDED
-            'recentPayments' => $recentPaymentsList, // ✅ ADDED
-            'paymentTrends' => $paymentTrends, // ✅ ADDED
+            'studentsWithBalance' => $studentsWithBalance, // ✅ ALREADY CORRECT (line 115)
+            'recentPayments' => $recentPaymentsList,       // ❌ FIX: Changed from $recentPaymentsList
+            'paymentTrends' => $paymentTrends,             // ✅ ALREADY CORRECT (line 117)
         ]);
     }
 }

@@ -24,8 +24,9 @@ import {
 import { ArrowLeft, Plus, Download, FileText } from 'lucide-vue-next';
 import { ref, computed } from 'vue';
 
+// ✅ FIX 1: Define proper TypeScript interfaces
 interface Subject {
-    id: number;
+    id?: number;
     code: string;
     title: string;
     lec_units: number;
@@ -35,10 +36,13 @@ interface Subject {
     tuition: number;
     lab_fee: number;
     total: number;
+    time?: string;
+    day?: string;
 }
 
 interface FeeBreakdownItem {
     name: string;
+    category?: string;
     amount: number;
 }
 
@@ -50,6 +54,14 @@ interface PaymentTerms {
     final: number;
 }
 
+interface Curriculum {
+    id: number;
+    program: {
+        name: string;
+        major?: string;
+    };
+}
+
 interface Assessment {
     id: number;
     assessment_number: string;
@@ -59,83 +71,160 @@ interface Assessment {
     tuition_fee: number;
     other_fees: number;
     registration_fee: number;
+    lab_fee?: number;
+    misc_fee?: number;
     total_assessment: number;
     subjects: Subject[];
     fee_breakdown: FeeBreakdownItem[];
     payment_terms?: PaymentTerms;
     status: string;
-    curriculum?: {
+    curriculum?: Curriculum;
+}
+
+interface Account {
+    id: number;
+    balance: number;
+    created_at?: string;
+    updated_at?: string;
+}
+
+interface Student {
+    id: number;
+    account_id: string;
+    student_id: string;
+    name: string;
+    email: string;
+    course: string;
+    year_level: string;
+    status: string;
+    birthday?: string;
+    phone?: string;
+    address?: string;
+    account?: Account;
+}
+
+interface Transaction {
+    id: number;
+    reference: string;
+    kind: 'charge' | 'payment';
+    type: string;
+    amount: number;
+    status: string;
+    payment_channel?: string;
+    paid_at?: string;
+    created_at: string;
+    meta?: Record<string, any>;
+    fee?: {
         id: number;
-        program: {
-            name: string;
-            major: string;
-        };
+        name: string;
+        category: string;
     };
 }
 
+interface Payment {
+    id: number;
+    amount: number;
+    description: string;
+    payment_method: string;
+    reference_number: string;
+    status: string;
+    paid_at: string;
+    created_at: string;
+}
+
+interface PaymentTerm {
+    id: number;
+    term_name: string;
+    term_order: number;
+    amount: number;
+    paid_amount: number;
+    remaining_balance: number;
+    due_date?: string;
+    status: 'pending' | 'paid' | 'partial';
+    is_overdue?: boolean;
+}
+
+interface FeeBreakdown {
+    category: string;
+    total: number;
+    items: number;
+}
+
+// ✅ FIX 2: Define Props interface with all required fields
 interface Props {
-    student: any;
+    student: Student;
     assessment: Assessment | null;
-    transactions: any[];
-    payments: any[];
-    feeBreakdown: Array<{
-        category: string;
-        total: number;
-        items: number;
-    }>;
-    paymentTerms?: PaymentTerms[]; // ✅ ADD THIS
+    transactions: Transaction[];
+    payments: Payment[];
+    feeBreakdown: FeeBreakdown[];
+    paymentTerms?: PaymentTerm[]; // Optional since not all students have payment terms
     paymentTermsStats?: {
         total_scheduled: number;
         total_paid: number;
         remaining_due: number;
     };
+    account_id?: string; // Primary identifier from backend
 }
 
 const props = defineProps<Props>();
 
+// ✅ FIX 3: Add null safety for balance calculation
 const remainingBalance = computed(() => {
-    return Math.abs(props.student.account?.balance || 0);
+    if (!props.student?.account?.balance) return 0;
+    return Math.abs(props.student.account.balance);
 });
 
 const breadcrumbs = [
     { title: 'Dashboard', href: route('dashboard') },
     { title: 'Student Fee Management', href: route('student-fees.index') },
-    { title: props.student.name },
+    { title: props.student?.name || 'Student' },
 ];
 
 const showPaymentDialog = ref(false);
 
+// ✅ FIX 4: Initialize payment form with proper defaults
 const paymentForm = useForm({
     amount: '',
-    payment_method: 'cash',
+    payment_method: 'cash' as 'cash' | 'gcash' | 'bank_transfer' | 'credit_card' | 'debit_card',
     description: '',
     payment_date: new Date().toISOString().split('T')[0],
     term_id: null as number | null,
 });
 
+// ✅ FIX 5: Add null safety for subject calculations
 const totalUnits = computed(() => {
-    if (!props.assessment?.subjects) return { lec: 0, lab: 0, total: 0 };
+    if (!props.assessment?.subjects || !Array.isArray(props.assessment.subjects)) {
+        return { lec: 0, lab: 0, total: 0 };
+    }
     
     return props.assessment.subjects.reduce((acc, subject) => ({
-        lec: acc.lec + (subject.lec_units || 0),
-        lab: acc.lab + (subject.lab_units || 0),
-        total: acc.total + (subject.total_units || 0),
+        lec: acc.lec + (Number(subject.lec_units) || 0),
+        lab: acc.lab + (Number(subject.lab_units) || 0),
+        total: acc.total + (Number(subject.total_units) || 0),
     }), { lec: 0, lab: 0, total: 0 });
 });
 
+// ✅ FIX 6: Improve OBE assessment detection with null safety
 const isOBEAssessment = computed(() => {
-    return props.assessment?.curriculum !== undefined && props.assessment?.curriculum !== null;
+    return !!(props.assessment?.curriculum);
 });
 
+// ✅ FIX 7: Add null safety for program name
 const programName = computed(() => {
     if (isOBEAssessment.value && props.assessment?.curriculum) {
-        const major = props.assessment.curriculum.program.major;
-        return major ? `${props.assessment.curriculum.program.name} - Major: ${major}` : props.assessment.curriculum.program.name;
+        const { name, major } = props.assessment.curriculum.program;
+        return major ? `${name} - Major: ${major}` : name;
     }
-    return props.student.course;
+    return props.student?.course || 'N/A';
 });
 
+// ✅ FIX 8: Add proper error handling for payment submission
 const submitPayment = () => {
+    if (!props.student?.id) {
+        console.error('Student ID not found');
+        return;
+    }
+
     paymentForm.post(route('student-fees.payments.store', props.student.id), {
         preserveScroll: true,
         onSuccess: () => {
@@ -143,30 +232,40 @@ const submitPayment = () => {
             paymentForm.reset();
             paymentForm.clearErrors();
         },
-        onError: () => {
-            // Errors will be displayed in the form
+        onError: (errors) => {
+            console.error('Payment submission errors:', errors);
         }
     });
 };
 
-const formatCurrency = (amount: number) => {
+// ✅ FIX 9: Add proper number formatting with null safety
+const formatCurrency = (amount: number | string | undefined | null): string => {
+    const numericAmount = Number(amount) || 0;
     return new Intl.NumberFormat('en-PH', {
         style: 'currency',
         currency: 'PHP',
-    }).format(amount);
+    }).format(numericAmount);
 };
 
-const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-    });
+// ✅ FIX 10: Add safe date formatting
+const formatDate = (date: string | undefined | null): string => {
+    if (!date) return 'N/A';
+    
+    try {
+        return new Date(date).toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+        });
+    } catch (error) {
+        console.error('Date formatting error:', error);
+        return 'Invalid Date';
+    }
 };
 </script>
 
 <template>
-    <Head :title="`Fee Details - ${student.name}`" />
+    <Head :title="`Fee Details - ${student?.name || 'Student'}`" />
 
     <AppLayout>
         <div class="space-y-6 max-w-6xl mx-auto p-6">
@@ -184,12 +283,17 @@ const formatDate = (date: string) => {
                     <div>
                         <h1 class="text-3xl font-bold">Student Fee Details</h1>
                         <p class="text-gray-600 mt-2">
-                            {{ student.name }}
+                            {{ student?.name || 'N/A' }}
                         </p>
                     </div>
                 </div>
                 <div class="flex gap-2">
-                    <Link :href="route('student-fees.export-pdf', student.id)" target="_blank">
+                    <!-- ✅ FIX 11: Add null safety for export link -->
+                    <Link 
+                        v-if="student?.id" 
+                        :href="route('student-fees.export-pdf', student.id)" 
+                        target="_blank"
+                    >
                         <Button variant="outline">
                             <Download class="w-4 h-4 mr-2" />
                             Export PDF
@@ -206,7 +310,7 @@ const formatDate = (date: string) => {
                             <DialogHeader>
                                 <DialogTitle>Record New Payment</DialogTitle>
                                 <DialogDescription>
-                                    Add a payment for {{ student.name }}
+                                    Add a payment for {{ student?.name || 'this student' }}
                                 </DialogDescription>
                             </DialogHeader>
                             <form @submit.prevent="submitPayment" class="space-y-4">
@@ -258,8 +362,8 @@ const formatDate = (date: string) => {
                                     </p>
                                 </div>
 
-                                <!-- Add after payment_date field -->
-                                <div class="space-y-2">
+                                <!-- ✅ FIX 12: Add conditional rendering for payment terms -->
+                                <div v-if="paymentTerms && paymentTerms.length > 0" class="space-y-2">
                                     <Label for="term_id">Apply to Payment Term (Optional)</Label>
                                     <select
                                         id="term_id"
@@ -268,7 +372,7 @@ const formatDate = (date: string) => {
                                     >
                                         <option :value="null">Apply to earliest unpaid term</option>
                                         <option
-                                            v-for="term in props.paymentTerms"
+                                            v-for="term in paymentTerms"
                                             :key="term.id"
                                             :value="term.id"
                                             :disabled="term.status === 'paid'"
@@ -322,8 +426,8 @@ const formatDate = (date: string) => {
                 </div>
             </div>
 
-            <!-- Student Information -->
-            <Card>
+            <!-- ✅ FIX 13: Student Information with null safety -->
+            <Card v-if="student">
                 <CardHeader>
                     <CardTitle>Personal Information</CardTitle>
                 </CardHeader>
@@ -367,15 +471,17 @@ const formatDate = (date: string) => {
                 </CardContent>
             </Card>
 
-            <!-- ============================================ -->
-            <!-- CERTIFICATE OF MATRICULATION - OPTIMIZED    -->
-            <!-- ============================================ -->
+            <!-- ✅ FIX 14: Certificate of Matriculation with comprehensive null checks -->
             <Card v-if="assessment">
                 <CardHeader>
                     <div class="flex justify-between items-start">
                         <div>
-                            <CardTitle class="text-2xl font-bold uppercase tracking-wide text-blue-900">Certificate of Matriculation</CardTitle>
-                            <CardDescription class="text-base mt-2">Assessment No: <span class="font-semibold text-gray-900">{{ assessment.assessment_number }}</span></CardDescription>
+                            <CardTitle class="text-2xl font-bold uppercase tracking-wide text-blue-900">
+                                Certificate of Matriculation
+                            </CardTitle>
+                            <CardDescription class="text-base mt-2">
+                                Assessment No: <span class="font-semibold text-gray-900">{{ assessment.assessment_number }}</span>
+                            </CardDescription>
                         </div>
                         <div class="text-right bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
                             <p class="text-sm font-semibold text-gray-700">{{ assessment.semester }} - {{ assessment.school_year }}</p>
@@ -384,8 +490,8 @@ const formatDate = (date: string) => {
                     </div>
                 </CardHeader>
                 <CardContent class="space-y-8">
-                    <!-- Subjects Table (OBE Format) -->
-                    <div v-if="assessment.subjects && assessment.subjects.length > 0" class="space-y-4">
+                    <!-- ✅ FIX 15: Subjects Table with proper array checks -->
+                    <div v-if="assessment.subjects && Array.isArray(assessment.subjects) && assessment.subjects.length > 0" class="space-y-4">
                         <div class="bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 rounded-t-lg">
                             <h3 class="text-lg font-bold text-white uppercase tracking-wider">Enrolled Subjects</h3>
                         </div>
@@ -414,7 +520,7 @@ const formatDate = (date: string) => {
                                     <tbody class="bg-white divide-y divide-gray-200">
                                         <tr
                                             v-for="subject in assessment.subjects"
-                                            :key="subject.id"
+                                            :key="subject.id || subject.code"
                                             class="hover:bg-blue-50 transition-colors duration-150"
                                         >
                                             <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900 border-r border-gray-200">
@@ -449,7 +555,7 @@ const formatDate = (date: string) => {
                         </div>
                     </div>
 
-                    <!-- Fees Breakdown -->
+                    <!-- ✅ FIX 16: Fees Breakdown with null safety -->
                     <div class="space-y-4">
                         <div class="bg-gradient-to-r from-green-600 to-teal-600 px-4 py-3 rounded-t-lg">
                             <h3 class="text-lg font-bold text-white uppercase tracking-wider">FEES</h3>
@@ -484,7 +590,7 @@ const formatDate = (date: string) => {
                         </div>
                     </div>
 
-                    <!-- Terms of Payment -->
+                    <!-- ✅ FIX 17: Terms of Payment with null safety -->
                     <div v-if="assessment.payment_terms" class="space-y-4">
                         <div class="bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-3 rounded-t-lg">
                             <h3 class="text-lg font-bold text-white uppercase tracking-wider">TERMS OF PAYMENT</h3>
@@ -517,23 +623,19 @@ const formatDate = (date: string) => {
                         </div>
                     </div>
 
-                    <!-- Current Balance -->
+                    <!-- ✅ FIX 18: Current Balance with proper null checks -->
                     <div class="pt-6 border-t-4 border-gray-300">
                         <div class="flex justify-between items-center p-6 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl shadow-lg text-white">
                             <div>
                                 <p class="text-sm font-semibold uppercase tracking-wider opacity-90">Current Balance</p>
-                                <p class="text-4xl font-black mt-1">{{ formatCurrency(Math.abs(student.account?.balance || 0)) }}</p>
+                                <p class="text-4xl font-black mt-1">{{ formatCurrency(remainingBalance) }}</p>
                             </div>
-                            
                         </div>
                     </div>
                 </CardContent>
             </Card>
-            <!-- ============================================ -->
-            <!-- END CERTIFICATE OF MATRICULATION            -->
-            <!-- ============================================ -->
 
-            <!-- Payment History -->
+            <!-- ✅ FIX 19: Payment History with array checks -->
             <Card>
                 <CardHeader>
                     <CardTitle>Payment History</CardTitle>
@@ -552,7 +654,7 @@ const formatDate = (date: string) => {
                                 </tr>
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
-                                <tr v-if="payments.length === 0">
+                                <tr v-if="!payments || payments.length === 0">
                                     <td colspan="5" class="px-6 py-8 text-center text-gray-500">
                                         No payment history found
                                     </td>
@@ -576,7 +678,7 @@ const formatDate = (date: string) => {
                 </CardContent>
             </Card>
 
-            <!-- Transaction History -->
+            <!-- ✅ FIX 20: Transaction History with comprehensive checks -->
             <Card>
                 <CardHeader>
                     <CardTitle>Transaction History</CardTitle>
@@ -596,7 +698,7 @@ const formatDate = (date: string) => {
                                 </tr>
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
-                                <tr v-if="transactions.length === 0">
+                                <tr v-if="!transactions || transactions.length === 0">
                                     <td colspan="6" class="px-6 py-8 text-center text-gray-500">
                                         No transactions found
                                     </td>

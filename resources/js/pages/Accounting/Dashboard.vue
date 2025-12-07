@@ -10,6 +10,26 @@ import { BarChart3, TrendingUp, Users, DollarSign, AlertCircle,
 } from 'lucide-vue-next'
 import StudentFeeWidget from '@/components/widgets/StudentFeeWidget.vue'
 
+interface Props {
+  stats: {
+    total_students: number
+    active_students: number
+    total_outstanding: number
+    recent_payments_30d: number
+    pending_charges: number
+    overdue_count: number
+  }
+  recentTransactions: any[]
+  overdueStudents: any[]
+  recentAssessments: any[]
+  paymentByMethod: any[]
+  studentsByYearLevel: any[]
+  currentTerm: any
+  studentsWithBalance: any[]  // ✅ ADD THIS
+  recentPayments: any[]       // ✅ ADD THIS
+  paymentTrends: any[]        // ✅ ADD THIS
+}
+
 type Stats = {
   total_students: number
   active_students: number
